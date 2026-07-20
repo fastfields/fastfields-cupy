@@ -3,8 +3,9 @@
 Two groups:
 
 1. Environment-independent tests that always run: they verify that
-   ``import fastfields.cupy`` succeeds *without* cupy installed (the lazy-import
-   requirement) and that calling a wrapper without cupy raises a clear error.
+   ``import fastfields.cupy`` succeeds *without* cupy installed (the
+   lazy-import requirement) and that calling a wrapper without cupy raises a
+   clear error.
 
 2. GPU correctness tests that require cupy *and* a CUDA device. They mirror the
    numpy-package checks (Euclidean DT vs brute force, sym_matvec vs dense) and
@@ -98,8 +99,10 @@ def test_dt_euclidean_gpu():
     import fastfields.cupy as ffc
 
     inp = np.array(
-        [[0, np.inf, np.inf, 0, np.inf, np.inf, np.inf],
-         [np.inf, np.inf, 0, np.inf, np.inf, 0, np.inf]],
+        [
+            [0, np.inf, np.inf, 0, np.inf, np.inf, np.inf],
+            [np.inf, np.inf, 0, np.inf, np.inf, 0, np.inf],
+        ],
         dtype=np.float32,
     )
     ref = _edt_reference(inp, 1.0, lambda d: d * d)
@@ -136,20 +139,22 @@ def test_sym_matvec_gpu():
         hessian = _pack_symmetric(mats)
         ref = np.einsum("bij,bj->bi", mats, vec)
         out = ffc.sym_matvec(cupy.asarray(hessian), cupy.asarray(vec))
-        np.testing.assert_allclose(cupy.asnumpy(out), ref, rtol=1e-8, atol=1e-8)
+        np.testing.assert_allclose(
+            cupy.asnumpy(out), ref, rtol=1e-8, atol=1e-8
+        )
 
 
 def test_sym_matvec_broadcasts_batch_dims_gpu():
     cupy = _require_gpu()
     import fastfields.cupy as ffc
 
-    # hessian batch (1,) vs vec batch (5,): must broadcast (zero-copy) and match
-    # the manually-broadcast dense product.
+    # hessian batch (1,) vs vec batch (5,): must broadcast (zero-copy) and
+    # match the manually-broadcast dense product.
     C, B = 3, 5
     rng = np.random.default_rng(0)
     mats = rng.standard_normal((1, C, C))
-    mats = mats + np.transpose(mats, (0, 2, 1))          # batch (1,)
-    vec = rng.standard_normal((B, C))                    # batch (5,)
+    mats = mats + np.transpose(mats, (0, 2, 1))  # batch (1,)
+    vec = rng.standard_normal((B, C))  # batch (5,)
     hessian = _pack_symmetric(mats)
 
     out = ffc.sym_matvec(cupy.asarray(hessian), cupy.asarray(vec))

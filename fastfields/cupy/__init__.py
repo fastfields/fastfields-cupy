@@ -9,8 +9,10 @@ through pre-allocated outputs.
 Conventions
 -----------
 * Functional wrappers (``dt_euclidean``, ``sym_matvec``, ``resample`` ...)
-  take cupy arrays, allocate their outputs, and return cupy arrays. Inputs are
-  made C-contiguous via ``cupy.ascontiguousarray`` and must be float32/float64.
+  take cupy arrays, allocate their outputs, and return cupy arrays. Inputs
+  must be float32/float64 but are passed with their native strides (the
+  stride-aware C++/CUDA library reads them zero-copy -- no contiguous copy is
+  forced); freshly allocated outputs are always contiguous.
 * Trailing-underscore wrappers (``dt_euclidean_``, ``sym_solve_`` ...) operate
   in place / through the caller's output array and return it.
 * **Streams:** cupy queues work on its *current* CUDA stream. Every wrapper

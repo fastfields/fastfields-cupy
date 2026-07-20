@@ -7,11 +7,11 @@ from typing import Any
 import fastfields.dlpack as _ff
 
 from ._util import (
-    as_gpu_contiguous,
+    as_gpu_array,
     broadcast_batch,
     cupy,
     current_stream_ptr,
-    require_gpu_contiguous,
+    require_gpu_writethrough,
 )
 
 __all__ = [
@@ -35,28 +35,28 @@ def dt_euclidean(inp: Any, voxel_spacing: float = 1.0) -> Any:
     Features are marked with ``0`` and background with ``+inf``. Returns a new
     cupy array; ``inp`` is left unmodified.
     """
-    out = as_gpu_contiguous(inp, name="inp").copy()
+    out = as_gpu_array(inp, name="inp").copy()
     _ff.dt_euclidean(out, voxel_spacing, current_stream_ptr())
     return out
 
 
 def dt_euclidean_(inp_out: Any, voxel_spacing: float = 1.0) -> Any:
     """In-place Euclidean distance transform along the last axis."""
-    inp_out = require_gpu_contiguous(inp_out, name="inp_out")
+    inp_out = require_gpu_writethrough(inp_out, name="inp_out")
     _ff.dt_euclidean(inp_out, voxel_spacing, current_stream_ptr())
     return inp_out
 
 
 def dt_l1(inp: Any, voxel_spacing: float = 1.0) -> Any:
     """L1 distance transform along the last axis (functional)."""
-    out = as_gpu_contiguous(inp, name="inp").copy()
+    out = as_gpu_array(inp, name="inp").copy()
     _ff.dt_l1(out, voxel_spacing, current_stream_ptr())
     return out
 
 
 def dt_l1_(inp_out: Any, voxel_spacing: float = 1.0) -> Any:
     """In-place L1 distance transform along the last axis."""
-    inp_out = require_gpu_contiguous(inp_out, name="inp_out")
+    inp_out = require_gpu_writethrough(inp_out, name="inp_out")
     _ff.dt_l1(inp_out, voxel_spacing, current_stream_ptr())
     return inp_out
 
@@ -78,16 +78,23 @@ def dt_spline_table(
     with the broadcast batch shape. Returns ``(time, dist)``.
     """
     cp = cupy()
-    loc = as_gpu_contiguous(loc, name="loc")
-    coeff = as_gpu_contiguous(coeff, name="coeff")
-    times = as_gpu_contiguous(times, name="times")
+    loc = as_gpu_array(loc, name="loc")
+    coeff = as_gpu_array(coeff, name="coeff")
+    times = as_gpu_array(times, name="times")
     batch, (loc_b, coeff_b, times_b) = broadcast_batch(
         [(loc, 1), (coeff, 2), (times, 1)]
     )
     time = cp.empty(batch, dtype=loc.dtype)
     dist = cp.empty(batch, dtype=loc.dtype)
     _ff.dt_spline_table(
-        time, dist, loc_b, coeff_b, times_b, spline, bound, current_stream_ptr()
+        time,
+        dist,
+        loc_b,
+        coeff_b,
+        times_b,
+        spline,
+        bound,
+        current_stream_ptr(),
     )
     return time, dist
 
@@ -106,13 +113,21 @@ def dt_spline_brent(
     ``loc`` core ``(D,)``, ``coeff`` core ``(N, D)``; batch dims broadcast.
     """
     cp = cupy()
-    loc = as_gpu_contiguous(loc, name="loc")
-    coeff = as_gpu_contiguous(coeff, name="coeff")
+    loc = as_gpu_array(loc, name="loc")
+    coeff = as_gpu_array(coeff, name="coeff")
     batch, (loc_b, coeff_b) = broadcast_batch([(loc, 1), (coeff, 2)])
     time = cp.empty(batch, dtype=loc.dtype)
     dist = cp.empty(batch, dtype=loc.dtype)
     _ff.dt_spline_brent(
-        time, dist, loc_b, coeff_b, max_iter, tol, step, spline, bound,
+        time,
+        dist,
+        loc_b,
+        coeff_b,
+        max_iter,
+        tol,
+        step,
+        spline,
+        bound,
         current_stream_ptr(),
     )
     return time, dist
@@ -131,13 +146,20 @@ def dt_spline_gaussnewton(
     ``loc`` core ``(D,)``, ``coeff`` core ``(N, D)``; batch dims broadcast.
     """
     cp = cupy()
-    loc = as_gpu_contiguous(loc, name="loc")
-    coeff = as_gpu_contiguous(coeff, name="coeff")
+    loc = as_gpu_array(loc, name="loc")
+    coeff = as_gpu_array(coeff, name="coeff")
     batch, (loc_b, coeff_b) = broadcast_batch([(loc, 1), (coeff, 2)])
     time = cp.empty(batch, dtype=loc.dtype)
     dist = cp.empty(batch, dtype=loc.dtype)
     _ff.dt_spline_gaussnewton(
-        time, dist, loc_b, coeff_b, max_iter, tol, spline, bound,
+        time,
+        dist,
+        loc_b,
+        coeff_b,
+        max_iter,
+        tol,
+        spline,
+        bound,
         current_stream_ptr(),
     )
     return time, dist
@@ -162,9 +184,9 @@ def dt_mesh(
     the index of the closest vertex.
     """
     cp = cupy()
-    loc = as_gpu_contiguous(loc, name="loc")
-    vertices = as_gpu_contiguous(vertices, name="vertices")
-    faces = cp.ascontiguousarray(faces)
+    loc = as_gpu_array(loc, name="loc")
+    vertices = as_gpu_array(vertices, name="vertices")
+    faces = cp.asarray(faces)  # native strides preserved (stride-aware kernel)
     # cores: loc (D,), vertices (N, D), faces (M, D); batch dims broadcast.
     batch, (loc_b, vert_b, faces_b) = broadcast_batch(
         [(loc, 1), (vertices, 2), (faces, 2)]
@@ -172,7 +194,13 @@ def dt_mesh(
     dist = cp.empty(batch, dtype=loc.dtype)
     nearest = cp.empty(batch, dtype=cp.int64) if return_nearest else None
     _ff.dt_mesh(
-        dist, nearest, loc_b, vert_b, faces_b, signed, naive,
+        dist,
+        nearest,
+        loc_b,
+        vert_b,
+        faces_b,
+        signed,
+        naive,
         current_stream_ptr(),
     )
     if return_nearest:

@@ -7,7 +7,7 @@ actually invoked without a working cupy/CUDA environment.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 
 _cupy_module: Any = None
 
@@ -29,8 +29,9 @@ def cupy() -> Any:
         except ImportError as exc:  # pragma: no cover - depends on environment
             raise ImportError(
                 "fastfields.cupy requires cupy, which is not installed. "
-                "Install a CUDA-matched build, e.g. `pip install cupy-cuda12x` "
-                "or `pip install fastfields-cupy[cupy]`."
+                "Install a CUDA-matched build, e.g. "
+                "`pip install cupy-cuda12x` or "
+                "`pip install fastfields-cupy[cupy]`."
             ) from exc
         _cupy_module = _cp
     return _cupy_module
@@ -50,14 +51,36 @@ def current_stream_ptr() -> int:
 
 
 def _is_gpu_array(arr: Any) -> bool:
+    """Return whether ``arr`` is a cupy ``ndarray``."""
     return isinstance(arr, cupy().ndarray)
 
 
-def as_gpu_contiguous(arr: Any, *, name: str = "array") -> Any:
-    """Validate that ``arr`` is a float32/float64 cupy array; return it C-contiguous.
+def as_gpu_array(arr: Any, *, name: str = "array") -> Any:
+    """Validate a float32/float64 cupy array and return it **unchanged**.
 
-    A contiguous copy is made only when necessary. Use this for *read-only*
-    inputs and for freshly allocated outputs.
+    Use this for *read-only* inputs. The underlying C++/CUDA library is fully
+    stride-aware (it receives the DLPack strides and indexes accordingly), so a
+    read-only input does **not** need to be contiguous: passing it with its
+    native strides is zero-copy and keeps big inputs from being duplicated. We
+    therefore only validate the type/dtype and return the array as-is -- no
+    ``cupy.ascontiguousarray`` copy is made.
+
+    Parameters
+    ----------
+    arr : cupy.ndarray
+        Candidate input array (must live in GPU memory).
+    name : str, optional
+        Argument name used in error messages.
+
+    Returns
+    -------
+    cupy.ndarray
+        ``arr`` unchanged.
+
+    Raises
+    ------
+    TypeError
+        If ``arr`` is not a cupy ``ndarray`` or is not float32/float64.
     """
     cp = cupy()
     if not isinstance(arr, cp.ndarray):
@@ -66,10 +89,12 @@ def as_gpu_contiguous(arr: Any, *, name: str = "array") -> Any:
             f"{type(arr).__name__}."
         )
     if arr.dtype not in (cp.float32, cp.float64):
-        raise TypeError(
-            f"{name} must be float32 or float64, got {arr.dtype}."
-        )
-    return cp.ascontiguousarray(arr)
+        raise TypeError(f"{name} must be float32 or float64, got {arr.dtype}.")
+    return arr
+
+
+# Backwards-compatible alias (contiguity is no longer forced on inputs).
+as_gpu_contiguous = as_gpu_array
 
 
 def require_gpu_writethrough(arr: Any, *, name: str = "array") -> Any:
@@ -90,9 +115,7 @@ def require_gpu_writethrough(arr: Any, *, name: str = "array") -> Any:
             f"{type(arr).__name__}."
         )
     if arr.dtype not in (cp.float32, cp.float64):
-        raise TypeError(
-            f"{name} must be float32 or float64, got {arr.dtype}."
-        )
+        raise TypeError(f"{name} must be float32 or float64, got {arr.dtype}.")
     return arr
 
 
@@ -113,8 +136,24 @@ require_gpu_contiguous = require_gpu_writethrough
 # 0-strides natively.
 
 
-def _broadcast_shapes(*shapes):
-    """Pure-python numpy-style broadcast of several shape tuples."""
+def _broadcast_shapes(*shapes: tuple[int, ...]) -> tuple[int, ...]:
+    """Pure-python numpy-style broadcast of several shape tuples.
+
+    Parameters
+    ----------
+    *shapes : tuple of int
+        The shapes to broadcast together.
+
+    Returns
+    -------
+    tuple of int
+        The common broadcast shape.
+
+    Raises
+    ------
+    ValueError
+        If the shapes are not broadcast-compatible.
+    """
     ndim = max((len(s) for s in shapes), default=0)
     out = [1] * ndim
     for s in shapes:
@@ -126,14 +165,30 @@ def _broadcast_shapes(*shapes):
             if cur == 1:
                 out[-i] = dim
             else:
-                raise ValueError(
-                    f"cannot broadcast batch shapes {shapes}"
-                )
+                raise ValueError(f"cannot broadcast batch shapes {shapes}")
     return tuple(out)
 
 
-def bcast_view(arr, shape):
-    """Return a zero-copy, DLPack-exportable broadcast of ``arr`` to ``shape``."""
+def bcast_view(arr: Any, shape: Sequence[int]) -> Any:
+    """Return a zero-copy, DLPack-exportable broadcast of ``arr`` to ``shape``.
+
+    Parameters
+    ----------
+    arr : cupy.ndarray
+        Array to broadcast.
+    shape : sequence of int
+        Target shape.
+
+    Returns
+    -------
+    cupy.ndarray
+        A 0-stride ``as_strided`` view sharing memory with ``arr``.
+
+    Raises
+    ------
+    ValueError
+        If ``arr`` cannot be broadcast to ``shape``.
+    """
     cp = cupy()
     shape = tuple(shape)
     if arr.shape == shape:
@@ -152,20 +207,46 @@ def bcast_view(arr, shape):
     return cp.lib.stride_tricks.as_strided(arr, shape, tuple(strides))
 
 
-def broadcast_batch(specs):
+def broadcast_batch(
+    specs: Sequence[tuple[Any, int]],
+) -> tuple[tuple[int, ...], list[Any]]:
     """Broadcast the batch dims of several arrays to a common shape.
 
-    ``specs`` is a list of ``(array, n_core)`` pairs, where ``n_core`` is the
-    number of trailing (core) axes to leave untouched. Returns
-    ``(batch_shape, [views...])`` with each view broadcast (zero-copy) to
-    ``batch_shape + that array's core dims``.
+    Parameters
+    ----------
+    specs : sequence of (cupy.ndarray, int)
+        ``(array, n_core)`` pairs, where ``n_core`` is the number of trailing
+        (core) axes to leave untouched.
+
+    Returns
+    -------
+    batch_shape : tuple of int
+        The common broadcast batch shape.
+    views : list of cupy.ndarray
+        Each input broadcast (zero-copy) to ``batch_shape + its core dims``.
     """
     batch = _broadcast_shapes(*[a.shape[: a.ndim - nc] for a, nc in specs])
-    views = [bcast_view(a, batch + a.shape[a.ndim - nc:]) for a, nc in specs]
+    views = [bcast_view(a, batch + a.shape[a.ndim - nc :]) for a, nc in specs]
     return batch, views
 
 
-def broadcast_to_batch(arr, batch, n_core):
-    """Broadcast ``arr`` to ``batch + arr's core dims`` (for in-place ops whose
-    output already fixes the batch shape)."""
-    return bcast_view(arr, tuple(batch) + arr.shape[arr.ndim - n_core:])
+def broadcast_to_batch(arr: Any, batch: Sequence[int], n_core: int) -> Any:
+    """Broadcast ``arr`` to ``batch + arr's core dims``.
+
+    For in-place ops whose output already fixes the batch shape.
+
+    Parameters
+    ----------
+    arr : cupy.ndarray
+        Array to broadcast.
+    batch : sequence of int
+        Target batch (leading) shape.
+    n_core : int
+        Number of trailing core axes of ``arr`` to preserve.
+
+    Returns
+    -------
+    cupy.ndarray
+        A zero-copy broadcast view of ``arr``.
+    """
+    return bcast_view(arr, tuple(batch) + arr.shape[arr.ndim - n_core :])
