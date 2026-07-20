@@ -72,12 +72,16 @@ def as_gpu_contiguous(arr: Any, *, name: str = "array") -> Any:
     return cp.ascontiguousarray(arr)
 
 
-def require_gpu_contiguous(arr: Any, *, name: str = "array") -> Any:
-    """Like :func:`as_gpu_contiguous` but forbid a silent copy.
+def require_gpu_writethrough(arr: Any, *, name: str = "array") -> Any:
+    """Validate an in-place / output array and return it **unchanged**.
 
-    Used for in-place / output arrays that the binding writes through: if we
-    silently copied a non-contiguous array the caller's data would never be
-    updated, so we raise instead.
+    The binding writes results through this array's memory. The underlying
+    library is fully stride-aware (it receives the DLPack strides and indexes
+    accordingly), so the write lands correctly regardless of memory layout --
+    no contiguous copy is made. This keeps in-place ops zero-copy even for
+    non-contiguous views, which is a core memory-efficiency feature of the
+    library. We only reject non-arrays and wrong dtypes (where an in-place
+    write could not land in the caller's buffer or would need a lossy cast).
     """
     cp = cupy()
     if not isinstance(arr, cp.ndarray):
@@ -89,9 +93,8 @@ def require_gpu_contiguous(arr: Any, *, name: str = "array") -> Any:
         raise TypeError(
             f"{name} must be float32 or float64, got {arr.dtype}."
         )
-    if not arr.flags.c_contiguous:
-        raise ValueError(
-            f"{name} must be C-contiguous for an in-place/output operation; "
-            "call `cupy.ascontiguousarray` first."
-        )
     return arr
+
+
+# Backwards-compatible alias (the contiguity requirement has been relaxed).
+require_gpu_contiguous = require_gpu_writethrough
