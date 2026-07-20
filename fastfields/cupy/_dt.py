@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-import fastfields_bind as _ff
+import fastfields.dlpack as _ff
 
 from ._util import (
     as_gpu_contiguous,
+    broadcast_batch,
     cupy,
     current_stream_ptr,
     require_gpu_contiguous,
@@ -63,16 +64,6 @@ def dt_l1_(inp_out: Any, voxel_spacing: float = 1.0) -> Any:
 # --------------------------------------------------------------------------- #
 # Point-to-spline distance                                                    #
 # --------------------------------------------------------------------------- #
-def _alloc_spline_outputs(loc: Any, coeff: Any) -> tuple[Any, Any, Any, Any]:
-    cp = cupy()
-    loc = as_gpu_contiguous(loc, name="loc")
-    coeff = as_gpu_contiguous(coeff, name="coeff")
-    batch = loc.shape[:-1]
-    time = cp.empty(batch, dtype=loc.dtype)
-    dist = cp.empty(batch, dtype=loc.dtype)
-    return time, dist, loc, coeff
-
-
 def dt_spline_table(
     loc: Any,
     coeff: Any,
@@ -82,12 +73,21 @@ def dt_spline_table(
 ) -> tuple[Any, Any]:
     """Point-to-spline distance via a dictionary of candidate ``times``.
 
-    Returns ``(time, dist)``, each shaped ``loc.shape[:-1]``.
+    ``loc`` core ``(D,)``, ``coeff`` core ``(N, D)``, ``times`` core ``(K,)``;
+    batch dims are broadcast (zero-copy) and ``time``/``dist`` are allocated
+    with the broadcast batch shape. Returns ``(time, dist)``.
     """
-    time, dist, loc, coeff = _alloc_spline_outputs(loc, coeff)
+    cp = cupy()
+    loc = as_gpu_contiguous(loc, name="loc")
+    coeff = as_gpu_contiguous(coeff, name="coeff")
     times = as_gpu_contiguous(times, name="times")
+    batch, (loc_b, coeff_b, times_b) = broadcast_batch(
+        [(loc, 1), (coeff, 2), (times, 1)]
+    )
+    time = cp.empty(batch, dtype=loc.dtype)
+    dist = cp.empty(batch, dtype=loc.dtype)
     _ff.dt_spline_table(
-        time, dist, loc, coeff, times, spline, bound, current_stream_ptr()
+        time, dist, loc_b, coeff_b, times_b, spline, bound, current_stream_ptr()
     )
     return time, dist
 
@@ -101,10 +101,18 @@ def dt_spline_brent(
     spline: int = 3,
     bound: int = 3,
 ) -> tuple[Any, Any]:
-    """Point-to-spline distance via Brent's method. Returns ``(time, dist)``."""
-    time, dist, loc, coeff = _alloc_spline_outputs(loc, coeff)
+    """Point-to-spline distance via Brent's method. Returns ``(time, dist)``.
+
+    ``loc`` core ``(D,)``, ``coeff`` core ``(N, D)``; batch dims broadcast.
+    """
+    cp = cupy()
+    loc = as_gpu_contiguous(loc, name="loc")
+    coeff = as_gpu_contiguous(coeff, name="coeff")
+    batch, (loc_b, coeff_b) = broadcast_batch([(loc, 1), (coeff, 2)])
+    time = cp.empty(batch, dtype=loc.dtype)
+    dist = cp.empty(batch, dtype=loc.dtype)
     _ff.dt_spline_brent(
-        time, dist, loc, coeff, max_iter, tol, step, spline, bound,
+        time, dist, loc_b, coeff_b, max_iter, tol, step, spline, bound,
         current_stream_ptr(),
     )
     return time, dist
@@ -118,10 +126,18 @@ def dt_spline_gaussnewton(
     spline: int = 3,
     bound: int = 3,
 ) -> tuple[Any, Any]:
-    """Point-to-spline distance via Gauss-Newton. Returns ``(time, dist)``."""
-    time, dist, loc, coeff = _alloc_spline_outputs(loc, coeff)
+    """Point-to-spline distance via Gauss-Newton. Returns ``(time, dist)``.
+
+    ``loc`` core ``(D,)``, ``coeff`` core ``(N, D)``; batch dims broadcast.
+    """
+    cp = cupy()
+    loc = as_gpu_contiguous(loc, name="loc")
+    coeff = as_gpu_contiguous(coeff, name="coeff")
+    batch, (loc_b, coeff_b) = broadcast_batch([(loc, 1), (coeff, 2)])
+    time = cp.empty(batch, dtype=loc.dtype)
+    dist = cp.empty(batch, dtype=loc.dtype)
     _ff.dt_spline_gaussnewton(
-        time, dist, loc, coeff, max_iter, tol, spline, bound,
+        time, dist, loc_b, coeff_b, max_iter, tol, spline, bound,
         current_stream_ptr(),
     )
     return time, dist
@@ -149,11 +165,14 @@ def dt_mesh(
     loc = as_gpu_contiguous(loc, name="loc")
     vertices = as_gpu_contiguous(vertices, name="vertices")
     faces = cp.ascontiguousarray(faces)
-    batch = loc.shape[:-1]
+    # cores: loc (D,), vertices (N, D), faces (M, D); batch dims broadcast.
+    batch, (loc_b, vert_b, faces_b) = broadcast_batch(
+        [(loc, 1), (vertices, 2), (faces, 2)]
+    )
     dist = cp.empty(batch, dtype=loc.dtype)
     nearest = cp.empty(batch, dtype=cp.int64) if return_nearest else None
     _ff.dt_mesh(
-        dist, nearest, loc, vertices, faces, signed, naive,
+        dist, nearest, loc_b, vert_b, faces_b, signed, naive,
         current_stream_ptr(),
     )
     if return_nearest:

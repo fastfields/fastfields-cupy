@@ -1,7 +1,7 @@
 # fastfields-cupy
 
 A user-friendly [cupy](https://cupy.dev/) interface over the
-[`fastfields_bind`](../fastfields-bind-py) nanobind bindings to the
+[`fastfields.dlpack`](../fastfields-bind-py) nanobind bindings to the
 `fastfields-lib` C++/CUDA library.
 
 It mirrors the numpy-style fastfields API but operates on **cupy arrays in CUDA
@@ -11,7 +11,7 @@ memory with them at zero copy.
 ## Install
 
 ```bash
-pip install fastfields-cupy            # pulls fastfields-bind
+pip install fastfields-cupy            # pulls fastfields-dlpack
 pip install "fastfields-cupy[cupy]"    # also install a CUDA 12.x cupy build
 ```
 
@@ -22,7 +22,7 @@ CUDA toolkit. Install `cupy-cuda12x`, `cupy-cuda11x`, ... to match your system.
 
 ```python
 import cupy as cp
-import fastfields_cupy as ffc
+import fastfields.cupy as ffc
 
 # Euclidean distance transform along the last axis (functional).
 x = cp.array([[0, cp.inf, cp.inf, 0, cp.inf]], dtype=cp.float32)

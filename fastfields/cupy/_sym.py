@@ -13,10 +13,12 @@ from __future__ import annotations
 
 from typing import Any
 
-import fastfields_bind as _ff
+import fastfields.dlpack as _ff
 
 from ._util import (
     as_gpu_contiguous,
+    broadcast_batch,
+    broadcast_to_batch,
     cupy,
     current_stream_ptr,
     require_gpu_contiguous,
@@ -35,68 +37,102 @@ __all__ = [
 
 
 def sym_matvec(hessian: Any, inp: Any) -> Any:
-    """Return ``out = H @ inp`` (functional). ``out`` shaped like ``inp``."""
+    """Return ``out = H @ inp`` (functional).
+
+    Batch (leading) dims of ``hessian`` and ``inp`` are broadcast (zero-copy);
+    ``out`` has the broadcast batch shape + ``inp``'s core dim ``(C,)``.
+    """
     cp = cupy()
     hessian = as_gpu_contiguous(hessian, name="hessian")
     inp = as_gpu_contiguous(inp, name="inp")
-    out = cp.empty_like(inp)
-    _ff.sym_matvec(out, hessian, inp, current_stream_ptr())
+    batch, (hessian_b, inp_b) = broadcast_batch([(hessian, 1), (inp, 1)])
+    out = cp.empty(batch + (inp.shape[-1],), dtype=inp.dtype)
+    _ff.sym_matvec(out, hessian_b, inp_b, current_stream_ptr())
     return out
 
 
 def sym_matvec_backward(grd: Any, inp: Any) -> Any:
     """Backward of :func:`sym_matvec` w.r.t. the matrix.
 
-    ``grd`` and ``inp`` are ``(..., C)``; returns the gradient in the same
-    compact-symmetric packing as the Hessian, shape ``(..., C*(C+1)/2)``.
+    ``grd`` and ``inp`` are ``(..., C)`` (batch dims broadcast); returns the
+    gradient in the same compact-symmetric packing, shape ``(..., C*(C+1)/2)``.
     """
     cp = cupy()
     grd = as_gpu_contiguous(grd, name="grd")
     inp = as_gpu_contiguous(inp, name="inp")
     c = inp.shape[-1]
     packed = c * (c + 1) // 2
-    out = cp.empty(inp.shape[:-1] + (packed,), dtype=inp.dtype)
-    _ff.sym_matvec_backward(out, grd, inp, current_stream_ptr())
+    batch, (grd_b, inp_b) = broadcast_batch([(grd, 1), (inp, 1)])
+    out = cp.empty(batch + (packed,), dtype=inp.dtype)
+    _ff.sym_matvec_backward(out, grd_b, inp_b, current_stream_ptr())
     return out
 
 
 def sym_addmatvec_(out: Any, hessian: Any, inp: Any) -> Any:
-    """In-place accumulate: ``out += H @ inp``. Returns ``out``."""
+    """In-place accumulate: ``out += H @ inp``. Returns ``out``.
+
+    ``out`` fixes the batch shape; ``hessian`` and ``inp`` are broadcast to it.
+    """
     out = require_gpu_contiguous(out, name="out")
     hessian = as_gpu_contiguous(hessian, name="hessian")
     inp = as_gpu_contiguous(inp, name="inp")
-    _ff.sym_addmatvec_(out, hessian, inp, current_stream_ptr())
+    batch = out.shape[:-1]
+    hessian_b = broadcast_to_batch(hessian, batch, 1)
+    inp_b = broadcast_to_batch(inp, batch, 1)
+    _ff.sym_addmatvec_(out, hessian_b, inp_b, current_stream_ptr())
     return out
 
 
 def sym_submatvec_(out: Any, hessian: Any, inp: Any) -> Any:
-    """In-place accumulate: ``out -= H @ inp``. Returns ``out``."""
+    """In-place accumulate: ``out -= H @ inp``. Returns ``out``.
+
+    ``out`` fixes the batch shape; ``hessian`` and ``inp`` are broadcast to it.
+    """
     out = require_gpu_contiguous(out, name="out")
     hessian = as_gpu_contiguous(hessian, name="hessian")
     inp = as_gpu_contiguous(inp, name="inp")
-    _ff.sym_submatvec_(out, hessian, inp, current_stream_ptr())
+    batch = out.shape[:-1]
+    hessian_b = broadcast_to_batch(hessian, batch, 1)
+    inp_b = broadcast_to_batch(inp, batch, 1)
+    _ff.sym_submatvec_(out, hessian_b, inp_b, current_stream_ptr())
     return out
 
 
 def sym_solve(hessian: Any, inp: Any, weight: Any = None) -> Any:
-    """Return ``out = (H + diag(weight)) \\ inp`` (functional). ``weight`` optional."""
+    """Return ``out = (H + diag(weight)) \\ inp`` (functional). ``weight`` optional.
+
+    Batch dims of ``hessian``/``inp``/``weight`` are broadcast (zero-copy).
+    """
     cp = cupy()
     hessian = as_gpu_contiguous(hessian, name="hessian")
     inp = as_gpu_contiguous(inp, name="inp")
-    if weight is not None:
+    if weight is None:
+        batch, (hessian_b, inp_b) = broadcast_batch([(hessian, 1), (inp, 1)])
+        out = cp.empty(batch + (inp.shape[-1],), dtype=inp.dtype)
+        _ff.sym_solve(out, hessian_b, inp_b, None, current_stream_ptr())
+    else:
         weight = as_gpu_contiguous(weight, name="weight")
-    out = cp.empty_like(inp)
-    _ff.sym_solve(out, hessian, inp, weight, current_stream_ptr())
+        batch, (hessian_b, inp_b, weight_b) = broadcast_batch(
+            [(hessian, 1), (inp, 1), (weight, 1)]
+        )
+        out = cp.empty(batch + (inp.shape[-1],), dtype=inp.dtype)
+        _ff.sym_solve(out, hessian_b, inp_b, weight_b, current_stream_ptr())
     return out
 
 
 def sym_solve_(inp_out: Any, hessian: Any, weight: Any = None) -> Any:
-    """In-place solve: ``inp_out = (H + diag(weight)) \\ inp_out``. Returns ``inp_out``."""
+    """In-place solve: ``inp_out = (H + diag(weight)) \\ inp_out``. Returns ``inp_out``.
+
+    ``inp_out`` fixes the batch shape; ``hessian``/``weight`` are broadcast to it.
+    """
     inp_out = require_gpu_contiguous(inp_out, name="inp_out")
     hessian = as_gpu_contiguous(hessian, name="hessian")
+    batch = inp_out.shape[:-1]
+    hessian_b = broadcast_to_batch(hessian, batch, 1)
     if weight is not None:
         weight = as_gpu_contiguous(weight, name="weight")
-    _ff.sym_solve_(inp_out, hessian, weight, current_stream_ptr())
+        weight = broadcast_to_batch(weight, batch, 1)
+    _ff.sym_solve_(inp_out, hessian_b, weight, current_stream_ptr())
     return inp_out
 
 

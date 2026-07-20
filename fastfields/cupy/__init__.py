@@ -1,8 +1,8 @@
-"""fastfields_cupy: a user-friendly cupy interface over ``fastfields_bind``.
+"""fastfields.cupy: a user-friendly cupy interface over ``fastfields.dlpack``.
 
 This package mirrors the numpy-style fastfields interface but operates on
 **cupy arrays living in CUDA device memory**. The underlying
-``fastfields_bind`` functions accept any object exposing ``__dlpack__`` (cupy
+``fastfields.dlpack`` functions accept any object exposing ``__dlpack__`` (cupy
 arrays do, sharing device memory with zero copy) and write results in place or
 through pre-allocated outputs.
 
@@ -19,7 +19,7 @@ Conventions
   surrounding cupy operations. To run on a specific stream, wrap the call in a
   ``with my_stream:`` block.
 
-cupy is imported lazily, so ``import fastfields_cupy`` succeeds even where cupy
+cupy is imported lazily, so ``import fastfields.cupy`` succeeds even where cupy
 or a GPU is unavailable; a clear ``ImportError`` is raised only when a wrapper
 is actually called.
 """
@@ -27,7 +27,7 @@ is actually called.
 from __future__ import annotations
 
 # Spline / Bound are plain IntEnums in fastfields_bind (no cupy needed).
-from fastfields_bind import Bound, Spline
+from fastfields.dlpack import Bound, Spline
 
 from ._dt import (
     dt_euclidean,

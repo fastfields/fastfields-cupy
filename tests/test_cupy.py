@@ -1,9 +1,9 @@
-"""Tests for fastfields_cupy.
+"""Tests for fastfields.cupy.
 
 Two groups:
 
 1. Environment-independent tests that always run: they verify that
-   ``import fastfields_cupy`` succeeds *without* cupy installed (the lazy-import
+   ``import fastfields.cupy`` succeeds *without* cupy installed (the lazy-import
    requirement) and that calling a wrapper without cupy raises a clear error.
 
 2. GPU correctness tests that require cupy *and* a CUDA device. They mirror the
@@ -21,10 +21,10 @@ import pytest
 # 1. Always-on tests (must pass even where cupy / GPU is absent)              #
 # --------------------------------------------------------------------------- #
 def test_import_without_cupy():
-    """`import fastfields_cupy` must not hard-fail when cupy is missing."""
-    import fastfields_cupy as ffc
+    """`import fastfields.cupy` must not hard-fail when cupy is missing."""
+    import fastfields.cupy as ffc
 
-    # Enums come straight from fastfields_bind (no cupy needed).
+    # Enums come straight from fastfields.dlpack (no cupy needed).
     assert int(ffc.Spline.Cubic) == 3
     assert int(ffc.Bound.DCT2) == 3
     for name in ("dt_euclidean", "sym_matvec", "resample", "spline_coeff"):
@@ -42,7 +42,7 @@ def _cupy_missing() -> bool:
 @pytest.mark.skipif(not _cupy_missing(), reason="cupy is installed")
 def test_call_without_cupy_raises():
     """Calling a wrapper without cupy raises a clear ImportError."""
-    import fastfields_cupy as ffc
+    import fastfields.cupy as ffc
 
     with pytest.raises(ImportError, match="cupy"):
         ffc.current_stream_ptr()
@@ -95,7 +95,7 @@ def _pack_symmetric(mats):
 
 def test_dt_euclidean_gpu():
     cupy = _require_gpu()
-    import fastfields_cupy as ffc
+    import fastfields.cupy as ffc
 
     inp = np.array(
         [[0, np.inf, np.inf, 0, np.inf, np.inf, np.inf],
@@ -109,7 +109,7 @@ def test_dt_euclidean_gpu():
 
 def test_dt_euclidean_inplace_gpu():
     cupy = _require_gpu()
-    import fastfields_cupy as ffc
+    import fastfields.cupy as ffc
 
     inp = np.array(
         [[0, np.inf, np.inf, 0, np.inf, np.inf, np.inf]],
@@ -124,7 +124,7 @@ def test_dt_euclidean_inplace_gpu():
 
 def test_sym_matvec_gpu():
     cupy = _require_gpu()
-    import fastfields_cupy as ffc
+    import fastfields.cupy as ffc
 
     for C in (2, 3):
         B = 4
@@ -137,6 +137,25 @@ def test_sym_matvec_gpu():
         ref = np.einsum("bij,bj->bi", mats, vec)
         out = ffc.sym_matvec(cupy.asarray(hessian), cupy.asarray(vec))
         np.testing.assert_allclose(cupy.asnumpy(out), ref, rtol=1e-8, atol=1e-8)
+
+
+def test_sym_matvec_broadcasts_batch_dims_gpu():
+    cupy = _require_gpu()
+    import fastfields.cupy as ffc
+
+    # hessian batch (1,) vs vec batch (5,): must broadcast (zero-copy) and match
+    # the manually-broadcast dense product.
+    C, B = 3, 5
+    rng = np.random.default_rng(0)
+    mats = rng.standard_normal((1, C, C))
+    mats = mats + np.transpose(mats, (0, 2, 1))          # batch (1,)
+    vec = rng.standard_normal((B, C))                    # batch (5,)
+    hessian = _pack_symmetric(mats)
+
+    out = ffc.sym_matvec(cupy.asarray(hessian), cupy.asarray(vec))
+    assert out.shape == (B, C)
+    ref = np.einsum("bij,bj->bi", np.broadcast_to(mats, (B, C, C)), vec)
+    np.testing.assert_allclose(cupy.asnumpy(out), ref, rtol=1e-8, atol=1e-8)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-import fastfields_bind as _ff
+import fastfields.dlpack as _ff
 
 from ._util import (
     as_gpu_contiguous,
