@@ -1,0 +1,145 @@
+"""Tests for fastfields_cupy.
+
+Two groups:
+
+1. Environment-independent tests that always run: they verify that
+   ``import fastfields_cupy`` succeeds *without* cupy installed (the lazy-import
+   requirement) and that calling a wrapper without cupy raises a clear error.
+
+2. GPU correctness tests that require cupy *and* a CUDA device. They mirror the
+   numpy-package checks (Euclidean DT vs brute force, sym_matvec vs dense) and
+   are cleanly skipped when cupy/GPU is unavailable.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+
+# --------------------------------------------------------------------------- #
+# 1. Always-on tests (must pass even where cupy / GPU is absent)              #
+# --------------------------------------------------------------------------- #
+def test_import_without_cupy():
+    """`import fastfields_cupy` must not hard-fail when cupy is missing."""
+    import fastfields_cupy as ffc
+
+    # Enums come straight from fastfields_bind (no cupy needed).
+    assert int(ffc.Spline.Cubic) == 3
+    assert int(ffc.Bound.DCT2) == 3
+    for name in ("dt_euclidean", "sym_matvec", "resample", "spline_coeff"):
+        assert callable(getattr(ffc, name))
+
+
+def _cupy_missing() -> bool:
+    try:
+        import cupy  # noqa: F401
+    except ImportError:
+        return True
+    return False
+
+
+@pytest.mark.skipif(not _cupy_missing(), reason="cupy is installed")
+def test_call_without_cupy_raises():
+    """Calling a wrapper without cupy raises a clear ImportError."""
+    import fastfields_cupy as ffc
+
+    with pytest.raises(ImportError, match="cupy"):
+        ffc.current_stream_ptr()
+
+
+# --------------------------------------------------------------------------- #
+# 2. GPU correctness tests (skipped without cupy + CUDA device)              #
+# --------------------------------------------------------------------------- #
+def _require_gpu():
+    """Skip unless cupy imports and at least one CUDA device is present."""
+    cupy = pytest.importorskip("cupy")
+    try:
+        ndev = cupy.cuda.runtime.getDeviceCount()
+    except Exception as exc:  # pragma: no cover - depends on driver
+        pytest.skip(f"cupy present but CUDA runtime unavailable: {exc}")
+    if ndev < 1:
+        pytest.skip("no CUDA device available")
+    return cupy
+
+
+def _edt_reference(inp, voxel_spacing, cost):
+    """Brute-force distance transform along the last axis (numpy)."""
+    n = inp.shape[-1]
+    flat = inp.reshape(-1, n)
+    ref = np.full_like(flat, np.inf)
+    for r in range(flat.shape[0]):
+        for i in range(n):
+            best = np.inf
+            for j in range(n):
+                best = min(best, flat[r, j] + cost(voxel_spacing * (i - j)))
+            ref[r, i] = best
+    return ref.reshape(inp.shape)
+
+
+def _pack_symmetric(mats):
+    """Dense (B,C,C) symmetric -> compact (B, C*(C+1)/2) diagonal-then-rows."""
+    B, C, _ = mats.shape
+    packed = np.zeros((B, C * (C + 1) // 2), dtype=mats.dtype)
+    for b in range(B):
+        idx = 0
+        for k in range(C):
+            packed[b, idx] = mats[b, k, k]
+            idx += 1
+        for i in range(C):
+            for j in range(i + 1, C):
+                packed[b, idx] = mats[b, i, j]
+                idx += 1
+    return packed
+
+
+def test_dt_euclidean_gpu():
+    cupy = _require_gpu()
+    import fastfields_cupy as ffc
+
+    inp = np.array(
+        [[0, np.inf, np.inf, 0, np.inf, np.inf, np.inf],
+         [np.inf, np.inf, 0, np.inf, np.inf, 0, np.inf]],
+        dtype=np.float32,
+    )
+    ref = _edt_reference(inp, 1.0, lambda d: d * d)
+    out = ffc.dt_euclidean(cupy.asarray(inp), 1.0)
+    np.testing.assert_allclose(cupy.asnumpy(out), ref, rtol=1e-5, atol=1e-5)
+
+
+def test_dt_euclidean_inplace_gpu():
+    cupy = _require_gpu()
+    import fastfields_cupy as ffc
+
+    inp = np.array(
+        [[0, np.inf, np.inf, 0, np.inf, np.inf, np.inf]],
+        dtype=np.float32,
+    )
+    ref = _edt_reference(inp, 1.0, lambda d: d * d)
+    gpu = cupy.asarray(inp)
+    ret = ffc.dt_euclidean_(gpu)
+    assert ret is gpu  # written in place
+    np.testing.assert_allclose(cupy.asnumpy(gpu), ref, rtol=1e-5, atol=1e-5)
+
+
+def test_sym_matvec_gpu():
+    cupy = _require_gpu()
+    import fastfields_cupy as ffc
+
+    for C in (2, 3):
+        B = 4
+        rng = np.random.default_rng(C)
+        mats = rng.standard_normal((B, C, C))
+        mats = mats + np.transpose(mats, (0, 2, 1))
+        vec = rng.standard_normal((B, C))
+
+        hessian = _pack_symmetric(mats)
+        ref = np.einsum("bij,bj->bi", mats, vec)
+        out = ffc.sym_matvec(cupy.asarray(hessian), cupy.asarray(vec))
+        np.testing.assert_allclose(cupy.asnumpy(out), ref, rtol=1e-8, atol=1e-8)
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(pytest.main([__file__, "-v"]))

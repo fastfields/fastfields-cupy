@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fastfields-cupy"
+version = "0.1.0"
+description = "User-friendly cupy interface over the fastfields_bind nanobind bindings"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "fastfields" }]
+# cupy is intentionally NOT a hard dependency: the correct wheel depends on the
+# host CUDA version. Install it via the `cupy` extra or manually.
+dependencies = ["fastfields-bind"]
+
+[project.optional-dependencies]
+# Pulls a prebuilt CUDA 12.x cupy wheel. Pick the build matching your CUDA
+# toolkit (e.g. cupy-cuda11x) if 12.x is not appropriate.
+cupy = ["cupy-cuda12x"]
+test = ["pytest"]
+
+[tool.setuptools]
+packages = ["fastfields_cupy"]
