@@ -1,3 +1,6 @@
 __pycache__/
 *.egg-info/
 build/
+
+# versioningit-generated version file
+fastfields/cupy/_version.py
