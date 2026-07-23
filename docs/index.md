@@ -1,24 +1,44 @@
 # fastfields-cupy
 
-`fastfields-cupy` is a user-friendly [cupy](https://cupy.dev/) interface over the `fastfields.dlpack` bindings. It mirrors the numpy-style fastfields API but operates on **cupy arrays in CUDA device memory** (shared zero-copy via `__dlpack__`). `cupy` is not a hard dependency, since the correct wheel depends on your CUDA toolkit; install it via the `cupy` extra.
+**fastfields-cupy** runs the fastfields field operators on the **GPU**, straight
+on your **CuPy arrays**. Same API as the NumPy package, but the work happens in
+device memory and is ordered on CuPy's current CUDA stream.
 
-## Installation
+CuPy itself isn't installed automatically — the right build depends on your CUDA
+version — so pull it in with the `cupy` extra (or install a matching
+`cupy-cuda12x` yourself).
 
-```bash
-pip install fastfields-cupy            # pulls fastfields-dlpack
-pip install "fastfields-cupy[cupy]"    # also install a CUDA 12.x cupy build
+## Install
+
+```sh
+pip install "fastfields-cupy[cupy]" \
+    --extra-index-url https://fastfields.github.io/whl/cu128/
 ```
 
-## Usage
+## Use it
 
 ```python
 import cupy as cp
-import fastfields.cupy as ffc
+import fastfields.cupy as ff
 
-# Euclidean distance transform along the last axis (functional).
-x = cp.array([[0, cp.inf, cp.inf, 0, cp.inf]], dtype=cp.float32)
-d = ffc.dt_euclidean(x)            # new array; x is untouched
-ffc.dt_euclidean_(x)               # in-place variant
+mask = cp.zeros((256, 256), "float32")
+mask[:, 128] = 1.0
+
+dist = ff.dt_euclidean(mask)      # new array; mask is untouched
+ff.dt_euclidean_(mask)            # in-place variant, writes into mask
 ```
 
-See the [API reference](api/index.md) for the full list of operations.
+## What's inside
+
+| Operation | Functions |
+|---|---|
+| **Distance transforms** | `dt_euclidean`, `dt_l1` (along the last axis); point-to-spline `dt_spline_table` / `dt_spline_brent` / `dt_spline_gaussnewton`; point-to-mesh `dt_mesh` |
+| **Positive-definite linear algebra** | `sym_matvec`, `sym_addmatvec_`, `sym_submatvec_`, `sym_solve`, `sym_invert` over whole fields of small symmetric matrices |
+| **Resampling** | `resample` (spline up/down-sampling), `restriction` (its adjoint), `spline_coeff` (coefficient prefilter) |
+
+Functional wrappers (`dt_euclidean`, `sym_matvec`, …) allocate their outputs and
+return new arrays; the trailing-underscore variants (`dt_euclidean_`,
+`sym_solve_`, …) write in place. To target a specific stream, wrap the call in a
+`with my_stream:` block.
+
+See the [API reference](api/index.md) for full signatures and options.
