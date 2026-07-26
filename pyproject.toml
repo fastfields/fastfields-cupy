@@ -34,7 +34,10 @@ dependencies = ["fastfields-dlpack"]
 # Pulls a prebuilt CUDA 12.x cupy wheel. Pick the build matching your CUDA
 # toolkit (e.g. cupy-cuda11x) if 12.x is not appropriate.
 cupy = ["cupy-cuda12x"]
-test = ["pytest"]
+# numpy is used by the test suite to build reference arrays and to feed the
+# wrappers via the array protocol; it is a test-only dependency (cupy itself
+# is optional and GPU-gated).
+test = ["pytest", "numpy"]
 
 # Ships only the ``fastfields.cupy`` subpackage; no ``fastfields/__init__.py``
 # is created, keeping ``fastfields`` a PEP 420 native namespace package.
