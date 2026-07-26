@@ -34,7 +34,7 @@ def test_import_without_cupy():
 
 def test_anchor_scale_shift_mapping():
     """The anchor->(scale, shift) mapping is pure Python (no cupy needed)."""
-    from fastfields.cupy._resample import _anchor_scale_shift
+    from fastfields.dlpack import anchor_scale_shift as _anchor_scale_shift
 
     for name, abbr, exp_scale, exp_shift in [
         ("centers", "c", 7 / 3, 0.0),
@@ -50,10 +50,44 @@ def test_anchor_scale_shift_mapping():
 
 
 def test_anchor_unknown_raises():
-    from fastfields.cupy._resample import _anchor_scale_shift
+    from fastfields.dlpack import anchor_scale_shift as _anchor_scale_shift
 
     with pytest.raises(ValueError, match="anchor"):
         _anchor_scale_shift("nope", (8,), (4,), 1)
+
+
+def test_factor_shape_resolution_no_cupy():
+    """factor/shape/ndim resolution is pure Python (no cupy needed)."""
+    from fastfields.dlpack import (
+        infer_ndim as _infer_ndim,
+    )
+    from fastfields.dlpack import (
+        resolve_out_spatial as _resolve_out_spatial,
+    )
+
+    assert _infer_ndim(None, None, [4, 4]) == 2
+    assert _infer_ndim(None, 2.0, None) == 1
+    assert _infer_ndim(3, None, None) == 3
+    # shape wins; scalar broadcasts to ndim
+    assert _resolve_out_spatial((5, 5), 2, None, 10) == (10, 10)
+    # factor rounds per-dim
+    assert _resolve_out_spatial((5,), 1, 2, None) == (10,)
+    # neither -> identity
+    assert _resolve_out_spatial((7,), 1, None, None) == (7,)
+
+
+def test_order_bound_aliases_no_cupy():
+    """order/bound accept int, enum or name (no cupy needed)."""
+    from fastfields.dlpack import Bound, as_bound, as_spline
+
+    assert as_spline("linear") == 1
+    assert as_spline(3) == 3
+    assert as_bound("dct2") == 3
+    assert as_bound("wrap") == int(Bound.DFT)
+    with pytest.raises(ValueError, match="spline order"):
+        as_spline("nope")
+    with pytest.raises(ValueError, match="boundary"):
+        as_bound("nope")
 
 
 def _cupy_missing() -> bool:
