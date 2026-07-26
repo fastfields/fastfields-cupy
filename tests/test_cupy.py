@@ -225,3 +225,56 @@ if __name__ == "__main__":
     import sys
 
     sys.exit(pytest.main([__file__, "-v"]))
+
+
+# --------------------------------------------------------------------------- #
+# pushpull + regularisers                                                     #
+# --------------------------------------------------------------------------- #
+
+
+def test_pushpull_reg_surface_present():
+    import fastfields.cupy as ffc
+
+    for name in [
+        "pull",
+        "push",
+        "count",
+        "grad",
+        "field_matvec",
+        "field_diag",
+        "flow_matvec",
+        "flow_diag",
+    ]:
+        assert hasattr(ffc, name), name
+
+
+def test_pull_gpu():
+    cupy = _require_gpu()
+    import fastfields.cupy as ffc
+
+    inp = cupy.asarray([[0.0], [10.0], [20.0], [30.0]], dtype=cupy.float64)
+    grid = cupy.asarray([[0.5], [1.5], [2.5]], dtype=cupy.float64)
+    out = ffc.pull(inp, grid, order=1)
+    assert cupy.allclose(out.ravel(), cupy.asarray([5.0, 15.0, 25.0]))
+
+
+def test_push_is_pull_adjoint_gpu():
+    cupy = _require_gpu()
+    import fastfields.cupy as ffc
+
+    grid = cupy.linspace(0, 5, 4, dtype=cupy.float64).reshape(4, 1)
+    x = cupy.random.standard_normal((6, 1)).astype(cupy.float64)
+    y = cupy.random.standard_normal((4, 1)).astype(cupy.float64)
+    px = ffc.pull(x, grid, order=2)
+    py = ffc.push(y, grid, shape=6, order=2)
+    assert cupy.allclose((px * y).sum(), (x * py).sum())
+
+
+def test_field_matvec_absolute_gpu():
+    cupy = _require_gpu()
+    import fastfields.cupy as ffc
+
+    f = cupy.random.standard_normal((8, 2)).astype(cupy.float64)
+    out = ffc.field_matvec(f, absolute=[2.0, 3.0], ndim=1)
+    assert cupy.allclose(out[:, 0], 2.0 * f[:, 0])
+    assert cupy.allclose(out[:, 1], 3.0 * f[:, 1])
