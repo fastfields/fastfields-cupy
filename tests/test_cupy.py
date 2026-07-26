@@ -56,6 +56,37 @@ def test_anchor_unknown_raises():
         _anchor_scale_shift("nope", (8,), (4,), 1)
 
 
+def test_factor_shape_resolution_no_cupy():
+    """factor/shape/ndim resolution is pure Python (no cupy needed)."""
+    from fastfields.cupy._resample import _infer_ndim, _resolve_out_spatial
+
+    assert _infer_ndim(None, None, [4, 4]) == 2
+    assert _infer_ndim(None, 2.0, None) == 1
+    assert _infer_ndim(3, None, None) == 3
+    # shape wins; scalar broadcasts to ndim
+    assert _resolve_out_spatial((5, 5), 2, None, 10) == (10, 10)
+    # factor rounds per-dim
+    assert _resolve_out_spatial((5,), 1, 2, None) == (10,)
+    # neither -> identity
+    assert _resolve_out_spatial((7,), 1, None, None) == (7,)
+
+
+def test_order_bound_aliases_no_cupy():
+    """order/bound accept int, enum or name (no cupy needed)."""
+    from fastfields.dlpack import Bound
+
+    from fastfields.cupy._util import as_bound, as_spline
+
+    assert as_spline("linear") == 1
+    assert as_spline(3) == 3
+    assert as_bound("dct2") == 3
+    assert as_bound("wrap") == int(Bound.DFT)
+    with pytest.raises(ValueError, match="spline order"):
+        as_spline("nope")
+    with pytest.raises(ValueError, match="boundary"):
+        as_bound("nope")
+
+
 def _cupy_missing() -> bool:
     try:
         import cupy  # noqa: F401

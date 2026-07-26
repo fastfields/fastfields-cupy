@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any, Optional, Sequence
 
 import fastfields.dlpack as _ff
 
 from ._util import (
+    as_bound,
     as_gpu_array,
+    as_spline,
     cupy,
     current_stream_ptr,
     require_gpu_writethrough,
@@ -89,17 +91,85 @@ def _anchor_scale_shift(
     return scale, _ANCHOR_SHIFT[key]
 
 
-def _resolve_scale_shift(
-    inp: Any,
-    out_shape: Sequence[int],
-    anchor: str,
-    scale: Sequence[float] | None,
-    shift: float | None,
+def _infer_ndim(
+    ndim: Optional[int],
+    factor: float | Sequence[float] | None,
+    shape: int | Sequence[int] | None,
+) -> int:
+    """Infer the number of trailing spatial dimensions to resize.
+
+    Mirrors the numpy/torch wrappers: an explicit ``ndim`` wins; otherwise a
+    sequence ``shape`` or ``factor`` implies its length; failing that, ``1``.
+    """
+    if ndim is not None:
+        return int(ndim)
+    if shape is not None and not isinstance(shape, int):
+        return len(list(shape))
+    if factor is not None and not isinstance(factor, (int, float)):
+        return len(list(factor))
+    return 1
+
+
+def _normalize_shape(shape: int | Sequence[int], ndim: int) -> list[int]:
+    """Normalise a shape argument to a list of length ``ndim``."""
+    if isinstance(shape, int):
+        shape = [shape] * ndim
+    shape = list(shape)
+    if len(shape) != ndim:
+        raise ValueError(f"Expected shape of length ndim={ndim}, got {shape}.")
+    return [int(s) for s in shape]
+
+
+def _resolve_out_spatial(
+    spatial_in: Sequence[int],
     ndim: int,
-) -> tuple[list[float], float]:
-    """Resolve the per-dim scale and scalar shift from ``anchor``/overrides."""
+    factor: float | Sequence[float] | None,
+    shape: int | Sequence[int] | None,
+) -> tuple[int, ...]:
+    """Resolve the output spatial shape from ``factor`` or ``shape``.
+
+    ``factor`` and ``shape`` are mutually exclusive; with neither, the output
+    keeps the input spatial shape (identity). A scalar is broadcast to
+    ``ndim`` entries.
+    """
+    if shape is not None:
+        return tuple(_normalize_shape(shape, ndim))
+    if factor is not None:
+        if isinstance(factor, (int, float)):
+            factors = [float(factor)] * ndim
+        else:
+            factors = [float(f) for f in factor]
+        if len(factors) != ndim:
+            raise ValueError(
+                f"Expected factor of length ndim={ndim}, got {factors}."
+            )
+        return tuple(
+            max(1, int(round(n * f))) for n, f in zip(spatial_in, factors)
+        )
+    return tuple(int(n) for n in spatial_in)  # identity
+
+
+def _resolve(
+    inp: Any,
+    factor: float | Sequence[float] | None,
+    shape: int | Sequence[int] | None,
+    ndim: Optional[int],
+    anchor: str,
+    scale: Optional[Sequence[float]],
+    shift: Optional[float],
+) -> tuple[tuple[int, ...], list[float], float]:
+    """Resolve (full output shape, per-dim scale, scalar shift) for a call.
+
+    Raises ``ValueError`` if ``ndim`` is outside ``1..inp.ndim`` or an
+    explicit ``scale`` has the wrong length.
+    """
+    ndim = _infer_ndim(ndim, factor, shape)
+    if ndim < 1 or ndim > inp.ndim:
+        raise ValueError(f"ndim must be in 1..{inp.ndim}, got {ndim}")
+    spatial_in = tuple(inp.shape[-ndim:])
+    out_spatial = _resolve_out_spatial(spatial_in, ndim, factor, shape)
     a_scale, a_shift = _anchor_scale_shift(
-        anchor, inp.shape[-ndim:], tuple(out_shape)[-ndim:], ndim
+        anchor, spatial_in, out_spatial, ndim
     )
     if scale is not None:
         a_scale = [float(s) for s in scale]
@@ -109,127 +179,154 @@ def _resolve_scale_shift(
             )
     if shift is not None:
         a_shift = float(shift)
-    return a_scale, a_shift
+    out_shape = tuple(int(n) for n in inp.shape[:-ndim]) + out_spatial
+    return out_shape, a_scale, a_shift
 
 
 def resample(
     inp: Any,
-    out_shape: Sequence[int],
-    spline: int = 2,
-    bound: int = 3,
-    shift: float | None = None,
-    scale: Sequence[float] | None = None,
-    ndim: int = 1,
+    factor: float | Sequence[float] | None = None,
+    shape: int | Sequence[int] | None = None,
+    *,
+    order: int | str = 2,
+    bound: int | str = "dct2",
+    ndim: Optional[int] = None,
     anchor: str = "centers",
+    shift: Optional[float] = None,
+    scale: Optional[Sequence[float]] = None,
 ) -> Any:
-    """Spline resample (prolongation) of ``inp`` onto ``out_shape``.
+    """Spline resample (prolongation) of the last ``ndim`` axes.
 
-    Allocates and returns the output array.
+    Allocates and returns the output array. The signature matches the
+    numpy/torch wrappers so ``fastfields.any.resample`` dispatches
+    consistently.
 
     Parameters
     ----------
     inp : cupy.ndarray
         Input array, shape ``(..., *inshape)``.
-    out_shape : sequence of int
-        Full output shape (batch dims + the ``ndim`` spatial dims).
-    spline : int, default=2
-        Spline order.
-    bound : int, default=3
-        Boundary condition (default DCT2).
-    shift : float, optional
-        Sampling-shift override. When omitted the shift implied by ``anchor``
-        is used; pass a value to override it (advanced use).
-    scale : sequence of float, optional
-        Per-dim scale (input-index per output-index), length ``ndim``. When
-        omitted it is derived from ``anchor`` and the shapes; pass a value to
-        override it (advanced use).
-    ndim : int, default=1
-        Number of spatial dimensions.
+    factor : float or sequence of float, optional
+        Per-axis resize multiplier (mutually exclusive with ``shape``; with
+        neither, this is the identity).
+    shape : int or sequence of int, optional
+        Explicit output spatial size (the last ``ndim`` axes of the result).
+    order : int or str, default=2
+        Spline order (int ``0..7``, a :class:`Spline` enum, or a name such as
+        ``"cubic"``).
+    bound : int or str, default="dct2"
+        Boundary condition (int, a :class:`Bound` enum, or a name such as
+        ``"dct2"``/``"wrap"``).
+    ndim : int, optional
+        Number of trailing spatial dimensions (inferred when omitted).
     anchor : {"centers", "edges", "first", "last"}, default="centers"
-        Sampling-grid convention, matching ``interpol.resize``. Sets the
-        default per-dim ``scale`` and ``shift`` (see
-        :func:`_anchor_scale_shift` for the mapping). Abbreviations
-        (``"c"``/``"e"``/``"f"``/``"l"``) are accepted.
-
-        .. note::
-           The default is ``"centers"``. Earlier releases behaved like
-           ``"first"`` (scale ``in/out``, shift ``0``); pass ``anchor="first"``
-           to recover that grid.
+        Sampling-grid convention, matching ``interpol.resize`` (see
+        :func:`_anchor_scale_shift`). Abbreviations accepted.
+    shift : float, optional
+        Sampling-shift override (default: the shift implied by ``anchor``).
+    scale : sequence of float, optional
+        Per-dim scale override (default: derived from ``anchor``).
     """
     cp = cupy()
     inp = as_gpu_array(inp, name="inp")
-    out = cp.empty(tuple(out_shape), dtype=inp.dtype)
-    scale, shift = _resolve_scale_shift(
-        inp, out_shape, anchor, scale, shift, ndim
+    out_shape, scale, shift = _resolve(
+        inp, factor, shape, ndim, anchor, scale, shift
     )
+    ndim = len(scale)
+    out = cp.empty(out_shape, dtype=inp.dtype)
     _ff.resample(
-        out, inp, spline, bound, shift, scale, ndim, current_stream_ptr()
+        out,
+        inp,
+        as_spline(order),
+        as_bound(bound),
+        shift,
+        scale,
+        ndim,
+        current_stream_ptr(),
     )
     return out
 
 
 def restriction(
     inp: Any,
-    out_shape: Sequence[int],
-    spline: int = 2,
-    bound: int = 3,
-    shift: float | None = None,
-    scale: Sequence[float] | None = None,
-    ndim: int = 1,
+    factor: float | Sequence[float] | None = None,
+    shape: int | Sequence[int] | None = None,
+    *,
+    order: int | str = 2,
+    bound: int | str = "dct2",
+    ndim: Optional[int] = None,
     anchor: str = "centers",
+    shift: Optional[float] = None,
+    scale: Optional[Sequence[float]] = None,
 ) -> Any:
-    """Restriction (adjoint of :func:`resample`) of ``inp`` onto ``out_shape``.
+    """Restriction (adjoint of :func:`resample`) of the last ``ndim`` axes.
 
     The binding *accumulates* into the output, so the freshly allocated array
-    is zero-initialised here. The ``anchor`` convention matches
-    :func:`resample`; because the scale is derived from this call's own
+    is zero-initialised here. Shares :func:`resample`'s ``factor``/``shape``/
+    ``order`` signature; because the scale is derived from this call's own
     (input, output) shapes, a ``resample`` and a matching ``restriction`` use
-    reciprocal scales and the same shift -- the adjoint relationship the
-    binding expects.
+    reciprocal scales and the same shift -- the adjoint the binding expects.
 
     Parameters
     ----------
     inp : cupy.ndarray
         Input array, shape ``(..., *inshape)``.
-    out_shape : sequence of int
-        Full output shape (batch dims + the ``ndim`` spatial dims).
-    spline : int, default=2
-        Spline order.
-    bound : int, default=3
-        Boundary condition (default DCT2).
+    factor : float or sequence of float, optional
+        Per-axis resize multiplier (mutually exclusive with ``shape``).
+    shape : int or sequence of int, optional
+        Explicit output spatial size.
+    order : int or str, default=2
+        Spline order (see :func:`resample`).
+    bound : int or str, default="dct2"
+        Boundary condition (see :func:`resample`).
+    ndim : int, optional
+        Number of trailing spatial dimensions (inferred when omitted).
+    anchor : {"centers", "edges", "first", "last"}, default="centers"
+        Sampling-grid convention (see :func:`resample`).
     shift : float, optional
         Sampling-shift override (see :func:`resample`).
     scale : sequence of float, optional
         Per-dim scale override (see :func:`resample`).
-    ndim : int, default=1
-        Number of spatial dimensions.
-    anchor : {"centers", "edges", "first", "last"}, default="centers"
-        Sampling-grid convention (see :func:`resample`).
     """
     cp = cupy()
     inp = as_gpu_array(inp, name="inp")
-    out = cp.zeros(tuple(out_shape), dtype=inp.dtype)
-    scale, shift = _resolve_scale_shift(
-        inp, out_shape, anchor, scale, shift, ndim
+    out_shape, scale, shift = _resolve(
+        inp, factor, shape, ndim, anchor, scale, shift
     )
+    ndim = len(scale)
+    out = cp.zeros(out_shape, dtype=inp.dtype)
     _ff.restriction(
-        out, inp, spline, bound, shift, scale, ndim, current_stream_ptr()
+        out,
+        inp,
+        as_spline(order),
+        as_bound(bound),
+        shift,
+        scale,
+        ndim,
+        current_stream_ptr(),
     )
     return out
 
 
-def spline_coeff(inp: Any, spline: int = 3, bound: int = 3) -> Any:
+def spline_coeff(
+    inp: Any, order: int | str = 3, bound: int | str = "dct2"
+) -> Any:
     """Spline-coefficient prefilter along the last axis (functional).
 
     Orders 0/1 are no-ops. Returns a new array; ``inp`` is unmodified.
     """
     out = as_gpu_array(inp, name="inp").copy()
-    _ff.spline_coeff(out, spline, bound, current_stream_ptr())
+    _ff.spline_coeff(
+        out, as_spline(order), as_bound(bound), current_stream_ptr()
+    )
     return out
 
 
-def spline_coeff_(inp_out: Any, spline: int = 3, bound: int = 3) -> Any:
+def spline_coeff_(
+    inp_out: Any, order: int | str = 3, bound: int | str = "dct2"
+) -> Any:
     """In-place spline-coeff prefilter (last axis); returns ``inp_out``."""
     inp_out = require_gpu_writethrough(inp_out, name="inp_out")
-    _ff.spline_coeff(inp_out, spline, bound, current_stream_ptr())
+    _ff.spline_coeff(
+        inp_out, as_spline(order), as_bound(bound), current_stream_ptr()
+    )
     return inp_out
