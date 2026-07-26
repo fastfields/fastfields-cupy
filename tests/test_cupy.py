@@ -32,6 +32,30 @@ def test_import_without_cupy():
         assert callable(getattr(ffc, name))
 
 
+def test_anchor_scale_shift_mapping():
+    """The anchor->(scale, shift) mapping is pure Python (no cupy needed)."""
+    from fastfields.cupy._resample import _anchor_scale_shift
+
+    for name, abbr, exp_scale, exp_shift in [
+        ("centers", "c", 7 / 3, 0.0),
+        ("edges", "e", 2.0, 0.5),
+        ("first", "f", 2.0, 0.0),
+        ("last", "l", 2.0, 1.0),
+    ]:
+        scale, shift = _anchor_scale_shift(name, (8,), (4,), 1)
+        assert shift == exp_shift
+        assert scale == pytest.approx([exp_scale])
+        # the abbreviation resolves to the same mapping
+        assert _anchor_scale_shift(abbr, (8,), (4,), 1) == (scale, shift)
+
+
+def test_anchor_unknown_raises():
+    from fastfields.cupy._resample import _anchor_scale_shift
+
+    with pytest.raises(ValueError, match="anchor"):
+        _anchor_scale_shift("nope", (8,), (4,), 1)
+
+
 def _cupy_missing() -> bool:
     try:
         import cupy  # noqa: F401
