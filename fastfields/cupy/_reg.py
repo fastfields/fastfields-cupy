@@ -23,6 +23,7 @@ __all__ = [
     "field_diag",
     "flow_matvec",
     "flow_diag",
+    "flow_kernel",
     "flow_relax",
     "flow_precond",
     "flow_forward",
@@ -165,6 +166,54 @@ def flow_diag(
     cp = cupy()
     out = cp.zeros(tuple(int(s) for s in shape), dtype=dtype or cp.float64)
     _ff.flow_diag(
+        out,
+        _voxel(voxel_size, ndim),
+        float(absolute),
+        float(membrane),
+        float(bending),
+        float(shears),
+        float(div),
+        as_bound(bound),
+        ndim,
+        current_stream_ptr(),
+    )
+    return out
+
+
+def flow_kernel(
+    ndim: int,
+    absolute: float = 0.0,
+    membrane: float = 0.0,
+    bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    dtype: Any = None,
+) -> Any:
+    """Materialise the flow regulariser's Toeplitz convolution stencil.
+
+    Returns the small centred kernel that, convolved with a flow field,
+    reproduces :func:`flow_matvec`. The shape is ``(*k, ndim)`` for the
+    per-channel vector stencil, or ``(*k, ndim, ndim)`` when ``shears``/``div``
+    select the cross-channel (Lamé) matrix stencil, where ``k`` is the stencil
+    width per spatial dim: 1 (absolute only), 3 (membrane/Lamé) or 5 (bending).
+    """
+    cp = cupy()
+    ndim = int(ndim)
+    is_matrix = shears != 0.0 or div != 0.0
+    if shears == div == membrane == bending == 0.0:
+        width = 1
+    elif bending == 0.0:
+        width = 3
+    else:
+        width = 5
+    shape = [width] * ndim + [ndim]
+    if is_matrix:
+        shape += [ndim]
+    out = cp.zeros(tuple(shape), dtype=dtype or cp.float64)
+    _ff.flow_kernel(
         out,
         _voxel(voxel_size, ndim),
         float(absolute),
