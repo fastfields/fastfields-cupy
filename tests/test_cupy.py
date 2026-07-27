@@ -241,7 +241,13 @@ def test_pushpull_reg_surface_present():
         "count",
         "grad",
         "field_matvec",
+        "field_matvec_add",
+        "field_matvec_sub",
         "field_diag",
+        "field_diag_add",
+        "field_diag_sub",
+        "field_precond",
+        "field_forward",
         "flow_matvec",
         "flow_matvec_add",
         "flow_matvec_add_",
@@ -381,3 +387,27 @@ def test_flow_accumulate_variants_gpu():
     s = base.copy()
     assert ffc.flow_diag_sub_(s, **kw) is s
     assert cupy.allclose(s, base - d)
+
+
+def test_field_precond_forward_accumulate_gpu():
+    cupy = _require_gpu()
+    import fastfields.cupy as ffc
+
+    H, W, C = 5, 6, 2
+    rng = np.random.default_rng(31)
+    A = rng.standard_normal((H * W, C, C))
+    mats = np.einsum("bij,bkj->bik", A, A) + (C + 1) * np.eye(C)
+    mat = cupy.asarray(_pack_symmetric(mats).reshape(H, W, C * (C + 1) // 2))
+    vec = cupy.asarray(rng.standard_normal((H, W, C)))
+    kw = dict(absolute=[0.3, 0.4], membrane=[0.7, 0.5], ndim=2)
+    fwd = ffc.field_forward(mat, vec, **kw)
+    assert cupy.allclose(
+        fwd, ffc.sym_matvec(mat, vec) + ffc.field_matvec(vec, **kw), atol=1e-10
+    )
+    x = ffc.field_precond(mat, vec, **kw)
+    diag = ffc.field_diag(vec.shape, **kw)
+    residual = ffc.sym_matvec(mat, x) + diag * x - vec
+    assert cupy.allclose(residual, cupy.zeros_like(residual), atol=1e-5)
+    base = cupy.asarray(rng.standard_normal((H, W, C)))
+    L = ffc.field_matvec(vec, **kw)
+    assert cupy.allclose(ffc.field_matvec_add(base, vec, **kw), base + L)
