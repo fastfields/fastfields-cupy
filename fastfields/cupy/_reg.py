@@ -29,6 +29,7 @@ __all__ = [
     "field_diag_add_",
     "field_diag_sub",
     "field_diag_sub_",
+    "field_kernel",
     "field_precond",
     "field_forward",
     "flow_matvec",
@@ -132,6 +133,60 @@ def flow_matvec(
         float(bending),
         float(shears),
         float(div),
+        as_bound(bound),
+        ndim,
+        current_stream_ptr(),
+    )
+    return out
+
+
+def _field_channels(channels, *penalties) -> int:
+    """Infer C from an explicit value or the per-channel penalty lengths."""
+    if channels is not None:
+        return int(channels)
+    for p in penalties:
+        if p is not None and not isinstance(p, (int, float)):
+            return len(p)
+    return 1
+
+
+def field_kernel(
+    ndim: int,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    channels: int | None = None,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    dtype: Any = None,
+) -> Any:
+    """Materialise the field regulariser's per-channel Toeplitz stencil.
+
+    Returns the small centred kernel that, convolved with a field, reproduces
+    :func:`field_matvec`. The shape is ``(*k, C)`` (channels are independent),
+    with ``k`` the stencil width per spatial dim: 1 (absolute), 3 (membrane) or
+    5 (bending). ``C`` is ``channels`` if given, else inferred from the
+    per-channel penalty lengths (default 1).
+    """
+    cp = cupy()
+    ndim = int(ndim)
+    channels = _field_channels(channels, absolute, membrane, bending)
+    if bending is not None:
+        width = 5
+    elif membrane is not None:
+        width = 3
+    else:
+        width = 1
+    out = cp.zeros(
+        tuple([width] * ndim + [channels]), dtype=dtype or cp.float64
+    )
+    _ff.field_kernel(
+        out,
+        _voxel(voxel_size, ndim),
+        _per_channel(absolute, channels, "absolute"),
+        _per_channel(membrane, channels, "membrane"),
+        _per_channel(bending, channels, "bending"),
         as_bound(bound),
         ndim,
         current_stream_ptr(),

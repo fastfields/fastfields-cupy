@@ -246,6 +246,7 @@ def test_pushpull_reg_surface_present():
         "field_diag",
         "field_diag_add",
         "field_diag_sub",
+        "field_kernel",
         "field_precond",
         "field_forward",
         "flow_matvec",
@@ -411,3 +412,31 @@ def test_field_precond_forward_accumulate_gpu():
     base = cupy.asarray(rng.standard_normal((H, W, C)))
     L = ffc.field_matvec(vec, **kw)
     assert cupy.allclose(ffc.field_matvec_add(base, vec, **kw), base + L)
+
+
+def test_field_kernel_is_matvec_impulse_response_gpu():
+    cupy = _require_gpu()
+    import fastfields.cupy as ffc
+
+    cases = [
+        (1, dict(absolute=[2.5, 1.5])),
+        (3, dict(absolute=[0.3, 0.4], membrane=[1.0, 0.7])),
+        (5, dict(absolute=[0.3, 0.4], membrane=[0.5, 0.6],
+                 bending=[1.0, 0.8])),
+    ]
+    C = 2
+    for width, kw in cases:
+        K = ffc.field_kernel(2, **kw)
+        assert K.shape == (width, width, C)
+        kd = width
+        N, cc, half = 2 * kd + 1, kd, kd // 2
+        for c0 in range(C):
+            x = cupy.zeros((N, N, C))
+            x[cc, cc, c0] = 1.0
+            o = ffc.field_matvec(x, ndim=2, **kw)
+            for a in range(kd):
+                for b in range(kd):
+                    for c in range(C):
+                        got = float(o[cc + a - half, cc + b - half, c])
+                        kern = float(K[a, b, c]) if c == c0 else 0.0
+                        assert abs(got - kern) < 1e-10
