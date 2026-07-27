@@ -22,7 +22,15 @@ __all__ = [
     "field_matvec",
     "field_diag",
     "flow_matvec",
+    "flow_matvec_add",
+    "flow_matvec_add_",
+    "flow_matvec_sub",
+    "flow_matvec_sub_",
     "flow_diag",
+    "flow_diag_add",
+    "flow_diag_add_",
+    "flow_diag_sub",
+    "flow_diag_sub_",
     "flow_kernel",
     "flow_relax",
     "flow_precond",
@@ -322,3 +330,177 @@ def flow_forward(
         voxel_size=voxel_size, bound=bound, ndim=ndim,
     )
     return out
+
+
+# --- accumulate variants -------------------------------------------------
+#
+# jitfields' ``_add`` / ``_sub`` (fresh array) and trailing-underscore in-place
+# forms, as thin compositions ``inp ± op(...)`` over flow_matvec / flow_diag.
+
+
+def flow_matvec_add(
+    inp: Any,
+    flow: Any,
+    absolute: float = 0.0,
+    membrane: float = 0.0,
+    bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """Return ``inp + L @ flow`` (fresh); ``L`` is the flow regulariser."""
+    inp = as_gpu_array(inp, name="inp")
+    return inp + flow_matvec(
+        flow, absolute, membrane, bending, shears, div,
+        voxel_size=voxel_size, bound=bound, ndim=ndim,
+    )
+
+
+def flow_matvec_sub(
+    inp: Any,
+    flow: Any,
+    absolute: float = 0.0,
+    membrane: float = 0.0,
+    bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """Return ``inp - L @ flow`` (fresh)."""
+    inp = as_gpu_array(inp, name="inp")
+    return inp - flow_matvec(
+        flow, absolute, membrane, bending, shears, div,
+        voxel_size=voxel_size, bound=bound, ndim=ndim,
+    )
+
+
+def flow_matvec_add_(
+    inp: Any,
+    flow: Any,
+    absolute: float = 0.0,
+    membrane: float = 0.0,
+    bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """In place ``inp += L @ flow``; returns ``inp``."""
+    inp = as_gpu_array(inp, name="inp")
+    inp += flow_matvec(
+        flow, absolute, membrane, bending, shears, div,
+        voxel_size=voxel_size, bound=bound, ndim=ndim,
+    )
+    return inp
+
+
+def flow_matvec_sub_(
+    inp: Any,
+    flow: Any,
+    absolute: float = 0.0,
+    membrane: float = 0.0,
+    bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """In place ``inp -= L @ flow``; returns ``inp``."""
+    inp = as_gpu_array(inp, name="inp")
+    inp -= flow_matvec(
+        flow, absolute, membrane, bending, shears, div,
+        voxel_size=voxel_size, bound=bound, ndim=ndim,
+    )
+    return inp
+
+
+def flow_diag_add(
+    inp: Any,
+    absolute: float = 0.0,
+    membrane: float = 0.0,
+    bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """Return ``inp + diag(L)`` (fresh), shaped like ``inp``."""
+    inp = as_gpu_array(inp, name="inp")
+    return inp + flow_diag(
+        inp.shape, absolute, membrane, bending, shears, div,
+        voxel_size=voxel_size, bound=bound, ndim=ndim, dtype=inp.dtype,
+    )
+
+
+def flow_diag_sub(
+    inp: Any,
+    absolute: float = 0.0,
+    membrane: float = 0.0,
+    bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """Return ``inp - diag(L)`` (fresh), shaped like ``inp``."""
+    inp = as_gpu_array(inp, name="inp")
+    return inp - flow_diag(
+        inp.shape, absolute, membrane, bending, shears, div,
+        voxel_size=voxel_size, bound=bound, ndim=ndim, dtype=inp.dtype,
+    )
+
+
+def flow_diag_add_(
+    inp: Any,
+    absolute: float = 0.0,
+    membrane: float = 0.0,
+    bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """In place ``inp += diag(L)``; returns ``inp``."""
+    inp = as_gpu_array(inp, name="inp")
+    inp += flow_diag(
+        inp.shape, absolute, membrane, bending, shears, div,
+        voxel_size=voxel_size, bound=bound, ndim=ndim, dtype=inp.dtype,
+    )
+    return inp
+
+
+def flow_diag_sub_(
+    inp: Any,
+    absolute: float = 0.0,
+    membrane: float = 0.0,
+    bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """In place ``inp -= diag(L)``; returns ``inp``."""
+    inp = as_gpu_array(inp, name="inp")
+    inp -= flow_diag(
+        inp.shape, absolute, membrane, bending, shears, div,
+        voxel_size=voxel_size, bound=bound, ndim=ndim, dtype=inp.dtype,
+    )
+    return inp
