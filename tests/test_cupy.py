@@ -244,6 +244,9 @@ def test_pushpull_reg_surface_present():
         "field_diag",
         "flow_matvec",
         "flow_diag",
+        "flow_relax",
+        "flow_precond",
+        "flow_forward",
     ]:
         assert hasattr(ffc, name), name
 
@@ -278,3 +281,39 @@ def test_field_matvec_absolute_gpu():
     out = ffc.field_matvec(f, absolute=[2.0, 3.0], ndim=1)
     assert cupy.allclose(out[:, 0], 2.0 * f[:, 0])
     assert cupy.allclose(out[:, 1], 3.0 * f[:, 1])
+
+
+def _flow_hessian_2d_gpu(cupy, H, W, seed):
+    """Per-voxel SPD 2x2 Hessian, packed compact-symmetric -> (H, W, 3)."""
+    rng = np.random.default_rng(seed)
+    A = rng.standard_normal((H * W, 2, 2))
+    mats = np.einsum("bij,bkj->bik", A, A) + 3.0 * np.eye(2)
+    packed = _pack_symmetric(mats).reshape(H, W, 3)
+    return cupy.asarray(packed)
+
+
+def test_flow_forward_is_sym_matvec_plus_flow_matvec_gpu():
+    cupy = _require_gpu()
+    import fastfields.cupy as ffc
+
+    H, W = 5, 6
+    mat = _flow_hessian_2d_gpu(cupy, H, W, 11)
+    vec = cupy.asarray(np.random.default_rng(11).standard_normal((H, W, 2)))
+    kw = dict(absolute=0.3, membrane=0.7, shears=1.0, div=0.5)
+    fwd = ffc.flow_forward(mat, vec, ndim=2, **kw)
+    expect = ffc.sym_matvec(mat, vec) + ffc.flow_matvec(vec, ndim=2, **kw)
+    assert cupy.allclose(fwd, expect, atol=1e-10)
+
+
+def test_flow_precond_solves_diagonal_system_gpu():
+    cupy = _require_gpu()
+    import fastfields.cupy as ffc
+
+    H, W = 5, 6
+    mat = _flow_hessian_2d_gpu(cupy, H, W, 12)
+    vec = cupy.asarray(np.random.default_rng(12).standard_normal((H, W, 2)))
+    kw = dict(absolute=0.3, membrane=0.7, shears=1.0, div=0.5)
+    x = ffc.flow_precond(mat, vec, ndim=2, **kw)
+    diag = ffc.flow_diag(vec.shape, ndim=2, **kw)
+    residual = ffc.sym_matvec(mat, x) + diag * x - vec
+    assert cupy.allclose(residual, cupy.zeros_like(residual), atol=1e-5)
