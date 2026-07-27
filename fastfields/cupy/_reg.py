@@ -80,12 +80,18 @@ def flow_matvec(
     absolute: float = 0.0,
     membrane: float = 0.0,
     bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
     *,
     voxel_size=None,
     bound: int | str = "dct2",
     ndim: int = 1,
 ) -> Any:
-    """Apply the flow regulariser (scalar penalties; same shape as ``inp``)."""
+    """Apply the flow regulariser (scalar penalties; same shape as ``inp``).
+
+    ``shears`` (Lamé mu) and ``div`` (Lamé lambda) add the linear-elastic
+    penalty coupling the flow channels.
+    """
     cp = cupy()
     inp = as_gpu_array(inp, name="inp")
     out = cp.zeros(inp.shape, dtype=inp.dtype)
@@ -96,6 +102,8 @@ def flow_matvec(
         float(absolute),
         float(membrane),
         float(bending),
+        float(shears),
+        float(div),
         as_bound(bound),
         ndim,
         current_stream_ptr(),
@@ -136,6 +144,8 @@ def flow_diag(
     absolute: float = 0.0,
     membrane: float = 0.0,
     bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
     *,
     voxel_size=None,
     bound: int | str = "dct2",
@@ -151,6 +161,8 @@ def flow_diag(
         float(absolute),
         float(membrane),
         float(bending),
+        float(shears),
+        float(div),
         as_bound(bound),
         ndim,
         current_stream_ptr(),
