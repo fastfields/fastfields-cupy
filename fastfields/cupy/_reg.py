@@ -17,7 +17,13 @@ from fastfields.dlpack import as_bound
 
 from ._util import as_gpu_array, cupy, current_stream_ptr
 
-__all__ = ["field_matvec", "field_diag", "flow_matvec", "flow_diag"]
+__all__ = [
+    "field_matvec",
+    "field_diag",
+    "flow_matvec",
+    "flow_diag",
+    "flow_relax",
+]
 
 
 def _per_channel(value, channels: int, name: str) -> Optional[list]:
@@ -168,3 +174,44 @@ def flow_diag(
         current_stream_ptr(),
     )
     return out
+
+
+def flow_relax(
+    flow: Any,
+    hes: Any,
+    grd: Any,
+    absolute: float = 0.0,
+    membrane: float = 0.0,
+    bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+    nb_iter: int = 1,
+) -> Any:
+    """Refine ``flow`` in place with ``nb_iter`` relaxation sweeps.
+
+    Solves ``(H + L) x = g`` with per-voxel symmetric Hessian ``hes`` and
+    gradient ``grd``; ``flow`` is the warm start, mutated and returned.
+    """
+    flow = as_gpu_array(flow, name="flow")
+    hes = as_gpu_array(hes, name="hes")
+    grd = as_gpu_array(grd, name="grd")
+    _ff.flow_relax(
+        flow,
+        hes,
+        grd,
+        _voxel(voxel_size, ndim),
+        float(absolute),
+        float(membrane),
+        float(bending),
+        float(shears),
+        float(div),
+        as_bound(bound),
+        ndim,
+        int(nb_iter),
+        current_stream_ptr(),
+    )
+    return flow

@@ -42,7 +42,13 @@ from ._dt import (
     dt_spline_table,
 )
 from ._pushpull import count, grad, pull, push
-from ._reg import field_diag, field_matvec, flow_diag, flow_matvec
+from ._reg import (
+    field_diag,
+    field_matvec,
+    flow_diag,
+    flow_matvec,
+    flow_relax,
+)
 from ._resample import resample, restriction, spline_coeff, spline_coeff_
 from ._sym import (
     sym_addmatvec_,
@@ -92,6 +98,7 @@ __all__ = [
     "field_diag",
     "flow_matvec",
     "flow_diag",
+    "flow_relax",
     # enums / helpers
     "Spline",
     "Bound",
