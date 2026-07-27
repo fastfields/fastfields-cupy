@@ -244,6 +244,7 @@ def test_pushpull_reg_surface_present():
         "field_diag",
         "flow_matvec",
         "flow_diag",
+        "flow_kernel",
         "flow_relax",
         "flow_precond",
         "flow_forward",
@@ -290,6 +291,38 @@ def _flow_hessian_2d_gpu(cupy, H, W, seed):
     mats = np.einsum("bij,bkj->bik", A, A) + 3.0 * np.eye(2)
     packed = _pack_symmetric(mats).reshape(H, W, 3)
     return cupy.asarray(packed)
+
+
+def test_flow_kernel_is_matvec_impulse_response_gpu():
+    cupy = _require_gpu()
+    import fastfields.cupy as ffc
+
+    cases = [
+        (dict(absolute=2.5), False, 1),
+        (dict(membrane=1.0), False, 3),
+        (dict(bending=1.0), False, 5),
+        (dict(shears=1.3, div=0.7), True, 3),
+        (dict(absolute=0.3, membrane=0.5, bending=0.4, shears=1.3, div=0.7),
+         True, 5),
+    ]
+    C = 2
+    for kw, is_matrix, width in cases:
+        K = ffc.flow_kernel(2, **kw)
+        assert K.shape == ((width, width, C, C) if is_matrix
+                           else (width, width, C))
+        kd = width
+        N, cc, half = 2 * kd + 1, kd, kd // 2
+        for j0 in range(C):
+            x = cupy.zeros((N, N, C))
+            x[cc, cc, j0] = 1.0
+            o = ffc.flow_matvec(x, ndim=2, **kw)
+            for a in range(kd):
+                for b in range(kd):
+                    for i in range(C):
+                        got = float(o[cc + a - half, cc + b - half, i])
+                        kern = float(K[a, b, i, j0]) if is_matrix else (
+                            float(K[a, b, i]) if i == j0 else 0.0)
+                        assert abs(got - kern) < 1e-10
 
 
 def test_flow_forward_is_sym_matvec_plus_flow_matvec_gpu():
