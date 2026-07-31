@@ -363,8 +363,16 @@ def flow_precond(
     """
     vec = as_gpu_array(vec, name="vec")
     diag = flow_diag(
-        vec.shape, absolute, membrane, bending, shears, div,
-        voxel_size=voxel_size, bound=bound, ndim=ndim, dtype=vec.dtype,
+        vec.shape,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
+        dtype=vec.dtype,
     )
     return sym_solve(mat, vec, diag)
 
@@ -391,8 +399,15 @@ def flow_forward(
     vec = as_gpu_array(vec, name="vec")
     out = sym_matvec(mat, vec)
     out = out + flow_matvec(
-        vec, absolute, membrane, bending, shears, div,
-        voxel_size=voxel_size, bound=bound, ndim=ndim,
+        vec,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
     )
     return out
 
@@ -419,8 +434,15 @@ def flow_matvec_add(
     """Return ``inp + L @ flow`` (fresh); ``L`` is the flow regulariser."""
     inp = as_gpu_array(inp, name="inp")
     return inp + flow_matvec(
-        flow, absolute, membrane, bending, shears, div,
-        voxel_size=voxel_size, bound=bound, ndim=ndim,
+        flow,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
     )
 
 
@@ -440,8 +462,15 @@ def flow_matvec_sub(
     """Return ``inp - L @ flow`` (fresh)."""
     inp = as_gpu_array(inp, name="inp")
     return inp - flow_matvec(
-        flow, absolute, membrane, bending, shears, div,
-        voxel_size=voxel_size, bound=bound, ndim=ndim,
+        flow,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
     )
 
 
@@ -461,8 +490,15 @@ def flow_matvec_add_(
     """In place ``inp += L @ flow``; returns ``inp``."""
     inp = as_gpu_array(inp, name="inp")
     inp += flow_matvec(
-        flow, absolute, membrane, bending, shears, div,
-        voxel_size=voxel_size, bound=bound, ndim=ndim,
+        flow,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
     )
     return inp
 
@@ -483,8 +519,15 @@ def flow_matvec_sub_(
     """In place ``inp -= L @ flow``; returns ``inp``."""
     inp = as_gpu_array(inp, name="inp")
     inp -= flow_matvec(
-        flow, absolute, membrane, bending, shears, div,
-        voxel_size=voxel_size, bound=bound, ndim=ndim,
+        flow,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
     )
     return inp
 
@@ -504,8 +547,16 @@ def flow_diag_add(
     """Return ``inp + diag(L)`` (fresh), shaped like ``inp``."""
     inp = as_gpu_array(inp, name="inp")
     return inp + flow_diag(
-        inp.shape, absolute, membrane, bending, shears, div,
-        voxel_size=voxel_size, bound=bound, ndim=ndim, dtype=inp.dtype,
+        inp.shape,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
+        dtype=inp.dtype,
     )
 
 
@@ -524,8 +575,16 @@ def flow_diag_sub(
     """Return ``inp - diag(L)`` (fresh), shaped like ``inp``."""
     inp = as_gpu_array(inp, name="inp")
     return inp - flow_diag(
-        inp.shape, absolute, membrane, bending, shears, div,
-        voxel_size=voxel_size, bound=bound, ndim=ndim, dtype=inp.dtype,
+        inp.shape,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
+        dtype=inp.dtype,
     )
 
 
@@ -544,8 +603,16 @@ def flow_diag_add_(
     """In place ``inp += diag(L)``; returns ``inp``."""
     inp = as_gpu_array(inp, name="inp")
     inp += flow_diag(
-        inp.shape, absolute, membrane, bending, shears, div,
-        voxel_size=voxel_size, bound=bound, ndim=ndim, dtype=inp.dtype,
+        inp.shape,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
+        dtype=inp.dtype,
     )
     return inp
 
@@ -565,8 +632,16 @@ def flow_diag_sub_(
     """In place ``inp -= diag(L)``; returns ``inp``."""
     inp = as_gpu_array(inp, name="inp")
     inp -= flow_diag(
-        inp.shape, absolute, membrane, bending, shears, div,
-        voxel_size=voxel_size, bound=bound, ndim=ndim, dtype=inp.dtype,
+        inp.shape,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
+        dtype=inp.dtype,
     )
     return inp
 
@@ -578,127 +653,248 @@ def flow_diag_sub_(
 
 
 def field_precond(
-    mat: Any, vec: Any, absolute=None, membrane=None, bending=None,
-    *, voxel_size=None, bound: int | str = "dct2", ndim: int = 1,
+    mat: Any,
+    vec: Any,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
 ) -> Any:
     """Apply the preconditioner ``(M + diag(R)) \\ vec``."""
     vec = as_gpu_array(vec, name="vec")
     diag = field_diag(
-        vec.shape, absolute, membrane, bending,
-        voxel_size=voxel_size, bound=bound, ndim=ndim, dtype=vec.dtype,
+        vec.shape,
+        absolute,
+        membrane,
+        bending,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
+        dtype=vec.dtype,
     )
     return sym_solve(mat, vec, diag)
 
 
 def field_forward(
-    mat: Any, vec: Any, absolute=None, membrane=None, bending=None,
-    *, voxel_size=None, bound: int | str = "dct2", ndim: int = 1,
+    mat: Any,
+    vec: Any,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
 ) -> Any:
     """Apply the forward matrix-vector product ``(M + R) @ vec``."""
     vec = as_gpu_array(vec, name="vec")
     out = sym_matvec(mat, vec)
     out = out + field_matvec(
-        vec, absolute, membrane, bending,
-        voxel_size=voxel_size, bound=bound, ndim=ndim,
+        vec,
+        absolute,
+        membrane,
+        bending,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
     )
     return out
 
 
 def field_matvec_add(
-    inp: Any, field: Any, absolute=None, membrane=None, bending=None,
-    *, voxel_size=None, bound: int | str = "dct2", ndim: int = 1,
+    inp: Any,
+    field: Any,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
 ) -> Any:
     """Return ``inp + L @ field`` (fresh); ``L`` = field regulariser."""
     inp = as_gpu_array(inp, name="inp")
     return inp + field_matvec(
-        field, absolute, membrane, bending,
-        voxel_size=voxel_size, bound=bound, ndim=ndim,
+        field,
+        absolute,
+        membrane,
+        bending,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
     )
 
 
 def field_matvec_sub(
-    inp: Any, field: Any, absolute=None, membrane=None, bending=None,
-    *, voxel_size=None, bound: int | str = "dct2", ndim: int = 1,
+    inp: Any,
+    field: Any,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
 ) -> Any:
     """Return ``inp - L @ field`` (fresh)."""
     inp = as_gpu_array(inp, name="inp")
     return inp - field_matvec(
-        field, absolute, membrane, bending,
-        voxel_size=voxel_size, bound=bound, ndim=ndim,
+        field,
+        absolute,
+        membrane,
+        bending,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
     )
 
 
 def field_matvec_add_(
-    inp: Any, field: Any, absolute=None, membrane=None, bending=None,
-    *, voxel_size=None, bound: int | str = "dct2", ndim: int = 1,
+    inp: Any,
+    field: Any,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
 ) -> Any:
     """In place ``inp += L @ field``; returns ``inp``."""
     inp = as_gpu_array(inp, name="inp")
     inp += field_matvec(
-        field, absolute, membrane, bending,
-        voxel_size=voxel_size, bound=bound, ndim=ndim,
+        field,
+        absolute,
+        membrane,
+        bending,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
     )
     return inp
 
 
 def field_matvec_sub_(
-    inp: Any, field: Any, absolute=None, membrane=None, bending=None,
-    *, voxel_size=None, bound: int | str = "dct2", ndim: int = 1,
+    inp: Any,
+    field: Any,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
 ) -> Any:
     """In place ``inp -= L @ field``; returns ``inp``."""
     inp = as_gpu_array(inp, name="inp")
     inp -= field_matvec(
-        field, absolute, membrane, bending,
-        voxel_size=voxel_size, bound=bound, ndim=ndim,
+        field,
+        absolute,
+        membrane,
+        bending,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
     )
     return inp
 
 
 def field_diag_add(
-    inp: Any, absolute=None, membrane=None, bending=None,
-    *, voxel_size=None, bound: int | str = "dct2", ndim: int = 1,
+    inp: Any,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
 ) -> Any:
     """Return ``inp + diag(L)`` (fresh), shaped like ``inp``."""
     inp = as_gpu_array(inp, name="inp")
     return inp + field_diag(
-        inp.shape, absolute, membrane, bending,
-        voxel_size=voxel_size, bound=bound, ndim=ndim, dtype=inp.dtype,
+        inp.shape,
+        absolute,
+        membrane,
+        bending,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
+        dtype=inp.dtype,
     )
 
 
 def field_diag_sub(
-    inp: Any, absolute=None, membrane=None, bending=None,
-    *, voxel_size=None, bound: int | str = "dct2", ndim: int = 1,
+    inp: Any,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
 ) -> Any:
     """Return ``inp - diag(L)`` (fresh), shaped like ``inp``."""
     inp = as_gpu_array(inp, name="inp")
     return inp - field_diag(
-        inp.shape, absolute, membrane, bending,
-        voxel_size=voxel_size, bound=bound, ndim=ndim, dtype=inp.dtype,
+        inp.shape,
+        absolute,
+        membrane,
+        bending,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
+        dtype=inp.dtype,
     )
 
 
 def field_diag_add_(
-    inp: Any, absolute=None, membrane=None, bending=None,
-    *, voxel_size=None, bound: int | str = "dct2", ndim: int = 1,
+    inp: Any,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
 ) -> Any:
     """In place ``inp += diag(L)``; returns ``inp``."""
     inp = as_gpu_array(inp, name="inp")
     inp += field_diag(
-        inp.shape, absolute, membrane, bending,
-        voxel_size=voxel_size, bound=bound, ndim=ndim, dtype=inp.dtype,
+        inp.shape,
+        absolute,
+        membrane,
+        bending,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
+        dtype=inp.dtype,
     )
     return inp
 
 
 def field_diag_sub_(
-    inp: Any, absolute=None, membrane=None, bending=None,
-    *, voxel_size=None, bound: int | str = "dct2", ndim: int = 1,
+    inp: Any,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
 ) -> Any:
     """In place ``inp -= diag(L)``; returns ``inp``."""
     inp = as_gpu_array(inp, name="inp")
     inp -= field_diag(
-        inp.shape, absolute, membrane, bending,
-        voxel_size=voxel_size, bound=bound, ndim=ndim, dtype=inp.dtype,
+        inp.shape,
+        absolute,
+        membrane,
+        bending,
+        voxel_size=voxel_size,
+        bound=bound,
+        ndim=ndim,
+        dtype=inp.dtype,
     )
     return inp

@@ -1,7 +1,7 @@
 # fastfields-cupy
 
 A user-friendly [cupy](https://cupy.dev/) interface over the
-[`fastfields.dlpack`](../fastfields-bind-py) nanobind bindings to the
+[`fastfields.dlpack`](https://github.com/fastfields/fastfields-dlpack) nanobind bindings to the
 `fastfields-lib` C++/CUDA library.
 
 It mirrors the numpy-style fastfields API but operates on **cupy arrays in CUDA
