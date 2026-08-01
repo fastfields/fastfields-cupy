@@ -30,6 +30,7 @@ __all__ = [
     "field_subdiag",
     "field_subdiag_",
     "field_kernel",
+    "field_relax",
     "field_precond",
     "field_forward",
     "flow_matvec",
@@ -346,6 +347,45 @@ def field_diag(
         current_stream_ptr(),
     )
     return out
+
+
+def field_relax(
+    field: Any,
+    hes: Any,
+    grd: Any,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+    nb_iter: int = 1,
+) -> Any:
+    """Refine ``field`` in place with ``nb_iter`` relaxation sweeps.
+
+    Solves ``(H + L) x = g`` with per-voxel compact-symmetric Hessian ``hes``
+    (packed ``C*(C+1)/2`` last axis), the per-channel field regulariser ``L``
+    and gradient ``grd``; ``field`` is the warm start, mutated and returned.
+    """
+    field = as_gpu_array(field, name="field")
+    hes = as_gpu_array(hes, name="hes")
+    grd = as_gpu_array(grd, name="grd")
+    channels = field.shape[-1]
+    _ff.field_relax(
+        field,
+        hes,
+        grd,
+        _voxel(voxel_size, ndim),
+        _per_channel(absolute, channels, "absolute"),
+        _per_channel(membrane, channels, "membrane"),
+        _per_channel(bending, channels, "bending"),
+        as_bound(bound),
+        ndim,
+        int(nb_iter),
+        current_stream_ptr(),
+    )
+    return field
 
 
 def flow_diag(
