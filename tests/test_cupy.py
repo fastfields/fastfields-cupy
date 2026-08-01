@@ -449,3 +449,48 @@ def test_field_kernel_is_matvec_impulse_response_gpu():
                         got = float(o[cc + a - half, cc + b - half, c])
                         kern = float(K[a, b, c]) if c == c0 else 0.0
                         assert abs(got - kern) < 1e-10
+
+
+# --------------------------------------------------------------------------- #
+# Accumulate ops: one in-place kernel, two spellings                          #
+#                                                                             #
+# The C primitive is in-place only; the out-of-place spelling copies       #
+# first and runs that same primitive. GPU-gated, as every test here.       #
+# --------------------------------------------------------------------------- #
+def test_accumulate_inplace_and_out_of_place():
+    cupy = _require_gpu()
+    import fastfields.cupy as ffc
+    kw = dict(absolute=[0.3, 0.4], membrane=[0.7, 0.5], ndim=2)
+    H, W, C = 4, 5, 2
+    rng = np.random.default_rng(21)
+    field = cupy.asarray(rng.standard_normal((H, W, C)))
+    base = cupy.asarray(rng.standard_normal((H, W, C)))
+    before = base.copy()
+
+    # out-of-place must not touch the caller's array
+    out = ffc.field_matvec_add(base, field, **kw)
+    assert bool((base == before).all())
+    assert out is not base
+
+    # in-place mutates and returns the same array
+    a = base.copy()
+    assert ffc.field_matvec_add_(a, field, **kw) is a
+    assert not bool((a == base).all())
+
+    # and both spellings agree exactly (same single kernel)
+    assert bool((a == out).all())
+
+
+def test_accumulate_matches_reference_composition():
+    cupy = _require_gpu()
+    import fastfields.cupy as ffc
+    kw = dict(absolute=0.3, membrane=0.7, shears=1.0, div=0.5, ndim=2)
+    H, W = 5, 6
+    rng = np.random.default_rng(23)
+    flow = cupy.asarray(rng.standard_normal((H, W, 2)))
+    base = cupy.asarray(rng.standard_normal((H, W, 2)))
+    L = ffc.flow_matvec(flow, **kw)
+    got = ffc.flow_matvec_add(base, flow, **kw)
+    assert float(abs(got - (base + L)).max()) < 1e-12
+    got = ffc.flow_matvec_sub(base, flow, **kw)
+    assert float(abs(got - (base - L)).max()) < 1e-12

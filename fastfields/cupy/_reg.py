@@ -75,6 +75,98 @@ def _voxel(value, ndim: int) -> Optional[list]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# In-place accumulate ops (`out (+/-)= ...`)
+# ---------------------------------------------------------------------------
+#
+# One kernel each: the in-place-only C primitive
+# `ff::{field,flow}_{matvec,diag}_{add,sub}_`, restored from jitfields'
+# `op='+'` / `op='-'` entry points. The out-of-place spelling copies the
+# caller's array first and runs the same primitive on the copy.
+
+
+def _field_matvec_acc(inp, field, absolute, membrane, bending, voxel_size,
+                      bound, ndim, sub, inplace):
+    inp = as_gpu_array(inp, name="inp")
+    field = as_gpu_array(field, name="field")
+    acc = inp if inplace else inp.copy()
+    channels = field.shape[-1]
+    fn = _ff.field_matvec_sub_ if sub else _ff.field_matvec_add_
+    fn(
+        acc,
+        field,
+        _voxel(voxel_size, ndim),
+        _per_channel(absolute, channels, "absolute"),
+        _per_channel(membrane, channels, "membrane"),
+        _per_channel(bending, channels, "bending"),
+        as_bound(bound),
+        ndim,
+        current_stream_ptr(),
+    )
+    return acc
+
+
+def _field_diag_acc(inp, absolute, membrane, bending, voxel_size, bound, ndim,
+                    sub, inplace):
+    inp = as_gpu_array(inp, name="inp")
+    acc = inp if inplace else inp.copy()
+    channels = acc.shape[-1]
+    fn = _ff.field_diag_sub_ if sub else _ff.field_diag_add_
+    fn(
+        acc,
+        _voxel(voxel_size, ndim),
+        _per_channel(absolute, channels, "absolute"),
+        _per_channel(membrane, channels, "membrane"),
+        _per_channel(bending, channels, "bending"),
+        as_bound(bound),
+        ndim,
+        current_stream_ptr(),
+    )
+    return acc
+
+
+def _flow_matvec_acc(inp, flow, absolute, membrane, bending, shears, div,
+                     voxel_size, bound, ndim, sub, inplace):
+    inp = as_gpu_array(inp, name="inp")
+    flow = as_gpu_array(flow, name="flow")
+    acc = inp if inplace else inp.copy()
+    fn = _ff.flow_matvec_sub_ if sub else _ff.flow_matvec_add_
+    fn(
+        acc,
+        flow,
+        _voxel(voxel_size, ndim),
+        float(absolute),
+        float(membrane),
+        float(bending),
+        float(shears),
+        float(div),
+        as_bound(bound),
+        ndim,
+        current_stream_ptr(),
+    )
+    return acc
+
+
+def _flow_diag_acc(inp, absolute, membrane, bending, shears, div, voxel_size,
+                   bound, ndim, sub, inplace):
+    inp = as_gpu_array(inp, name="inp")
+    acc = inp if inplace else inp.copy()
+    fn = _ff.flow_diag_sub_ if sub else _ff.flow_diag_add_
+    fn(
+        acc,
+        _voxel(voxel_size, ndim),
+        float(absolute),
+        float(membrane),
+        float(bending),
+        float(shears),
+        float(div),
+        as_bound(bound),
+        ndim,
+        current_stream_ptr(),
+    )
+    return acc
+
+
 def field_matvec(
     inp: Any,
     absolute=None,
@@ -431,18 +523,13 @@ def flow_matvec_add(
     bound: int | str = "dct2",
     ndim: int = 1,
 ) -> Any:
-    """Return ``inp + L @ flow`` (fresh); ``L`` is the flow regulariser."""
-    inp = as_gpu_array(inp, name="inp")
-    return inp + flow_matvec(
-        flow,
-        absolute,
-        membrane,
-        bending,
-        shears,
-        div,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
+    """Return ``inp + L @ flow`` as a **new** array.
+
+    Copies ``inp`` and runs the in-place accumulate primitive on the copy.
+    """
+    return _flow_matvec_acc(
+        inp, flow, absolute, membrane, bending, shears, div,
+        voxel_size, bound, ndim, sub=False, inplace=False,
     )
 
 
@@ -459,18 +546,13 @@ def flow_matvec_sub(
     bound: int | str = "dct2",
     ndim: int = 1,
 ) -> Any:
-    """Return ``inp - L @ flow`` (fresh)."""
-    inp = as_gpu_array(inp, name="inp")
-    return inp - flow_matvec(
-        flow,
-        absolute,
-        membrane,
-        bending,
-        shears,
-        div,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
+    """Return ``inp - L @ flow`` as a **new** array.
+
+    Copies ``inp`` and runs the in-place accumulate primitive on the copy.
+    """
+    return _flow_matvec_acc(
+        inp, flow, absolute, membrane, bending, shears, div,
+        voxel_size, bound, ndim, sub=True, inplace=False,
     )
 
 
@@ -487,20 +569,14 @@ def flow_matvec_add_(
     bound: int | str = "dct2",
     ndim: int = 1,
 ) -> Any:
-    """In place ``inp += L @ flow``; returns ``inp``."""
-    inp = as_gpu_array(inp, name="inp")
-    inp += flow_matvec(
-        flow,
-        absolute,
-        membrane,
-        bending,
-        shears,
-        div,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
+    """In place ``inp += L @ flow``; returns ``inp``.
+
+    Calls the fused in-place C primitive directly.
+    """
+    return _flow_matvec_acc(
+        inp, flow, absolute, membrane, bending, shears, div,
+        voxel_size, bound, ndim, sub=False, inplace=True,
     )
-    return inp
 
 
 def flow_matvec_sub_(
@@ -516,20 +592,14 @@ def flow_matvec_sub_(
     bound: int | str = "dct2",
     ndim: int = 1,
 ) -> Any:
-    """In place ``inp -= L @ flow``; returns ``inp``."""
-    inp = as_gpu_array(inp, name="inp")
-    inp -= flow_matvec(
-        flow,
-        absolute,
-        membrane,
-        bending,
-        shears,
-        div,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
+    """In place ``inp -= L @ flow``; returns ``inp``.
+
+    Calls the fused in-place C primitive directly.
+    """
+    return _flow_matvec_acc(
+        inp, flow, absolute, membrane, bending, shears, div,
+        voxel_size, bound, ndim, sub=True, inplace=True,
     )
-    return inp
 
 
 def flow_diag_add(
@@ -544,19 +614,13 @@ def flow_diag_add(
     bound: int | str = "dct2",
     ndim: int = 1,
 ) -> Any:
-    """Return ``inp + diag(L)`` (fresh), shaped like ``inp``."""
-    inp = as_gpu_array(inp, name="inp")
-    return inp + flow_diag(
-        inp.shape,
-        absolute,
-        membrane,
-        bending,
-        shears,
-        div,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
-        dtype=inp.dtype,
+    """Return ``inp + diag(L)`` as a **new** array, shaped like ``inp``.
+
+    Copies ``inp`` and runs the in-place accumulate primitive on the copy.
+    """
+    return _flow_diag_acc(
+        inp, absolute, membrane, bending, shears, div,
+        voxel_size, bound, ndim, sub=False, inplace=False,
     )
 
 
@@ -572,19 +636,13 @@ def flow_diag_sub(
     bound: int | str = "dct2",
     ndim: int = 1,
 ) -> Any:
-    """Return ``inp - diag(L)`` (fresh), shaped like ``inp``."""
-    inp = as_gpu_array(inp, name="inp")
-    return inp - flow_diag(
-        inp.shape,
-        absolute,
-        membrane,
-        bending,
-        shears,
-        div,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
-        dtype=inp.dtype,
+    """Return ``inp - diag(L)`` as a **new** array, shaped like ``inp``.
+
+    Copies ``inp`` and runs the in-place accumulate primitive on the copy.
+    """
+    return _flow_diag_acc(
+        inp, absolute, membrane, bending, shears, div,
+        voxel_size, bound, ndim, sub=True, inplace=False,
     )
 
 
@@ -600,21 +658,14 @@ def flow_diag_add_(
     bound: int | str = "dct2",
     ndim: int = 1,
 ) -> Any:
-    """In place ``inp += diag(L)``; returns ``inp``."""
-    inp = as_gpu_array(inp, name="inp")
-    inp += flow_diag(
-        inp.shape,
-        absolute,
-        membrane,
-        bending,
-        shears,
-        div,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
-        dtype=inp.dtype,
+    """In place ``inp += diag(L)``; returns ``inp``.
+
+    Calls the fused in-place C primitive directly.
+    """
+    return _flow_diag_acc(
+        inp, absolute, membrane, bending, shears, div,
+        voxel_size, bound, ndim, sub=False, inplace=True,
     )
-    return inp
 
 
 def flow_diag_sub_(
@@ -629,27 +680,14 @@ def flow_diag_sub_(
     bound: int | str = "dct2",
     ndim: int = 1,
 ) -> Any:
-    """In place ``inp -= diag(L)``; returns ``inp``."""
-    inp = as_gpu_array(inp, name="inp")
-    inp -= flow_diag(
-        inp.shape,
-        absolute,
-        membrane,
-        bending,
-        shears,
-        div,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
-        dtype=inp.dtype,
+    """In place ``inp -= diag(L)``; returns ``inp``.
+
+    Calls the fused in-place C primitive directly.
+    """
+    return _flow_diag_acc(
+        inp, absolute, membrane, bending, shears, div,
+        voxel_size, bound, ndim, sub=True, inplace=True,
     )
-    return inp
-
-
-# --- field: precond / forward / accumulate -------------------------------
-#
-# Field analogues of the flow helpers, pure Python compositions over
-# field_matvec / field_diag / sym -- no new kernel.
 
 
 def field_precond(
@@ -715,16 +753,13 @@ def field_matvec_add(
     bound: int | str = "dct2",
     ndim: int = 1,
 ) -> Any:
-    """Return ``inp + L @ field`` (fresh); ``L`` = field regulariser."""
-    inp = as_gpu_array(inp, name="inp")
-    return inp + field_matvec(
-        field,
-        absolute,
-        membrane,
-        bending,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
+    """Return ``inp + L @ field`` as a **new** array.
+
+    Copies ``inp`` and runs the in-place accumulate primitive on the copy.
+    """
+    return _field_matvec_acc(
+        inp, field, absolute, membrane, bending,
+        voxel_size, bound, ndim, sub=False, inplace=False,
     )
 
 
@@ -739,16 +774,13 @@ def field_matvec_sub(
     bound: int | str = "dct2",
     ndim: int = 1,
 ) -> Any:
-    """Return ``inp - L @ field`` (fresh)."""
-    inp = as_gpu_array(inp, name="inp")
-    return inp - field_matvec(
-        field,
-        absolute,
-        membrane,
-        bending,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
+    """Return ``inp - L @ field`` as a **new** array.
+
+    Copies ``inp`` and runs the in-place accumulate primitive on the copy.
+    """
+    return _field_matvec_acc(
+        inp, field, absolute, membrane, bending,
+        voxel_size, bound, ndim, sub=True, inplace=False,
     )
 
 
@@ -763,18 +795,14 @@ def field_matvec_add_(
     bound: int | str = "dct2",
     ndim: int = 1,
 ) -> Any:
-    """In place ``inp += L @ field``; returns ``inp``."""
-    inp = as_gpu_array(inp, name="inp")
-    inp += field_matvec(
-        field,
-        absolute,
-        membrane,
-        bending,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
+    """In place ``inp += L @ field``; returns ``inp``.
+
+    Calls the fused in-place C primitive directly.
+    """
+    return _field_matvec_acc(
+        inp, field, absolute, membrane, bending,
+        voxel_size, bound, ndim, sub=False, inplace=True,
     )
-    return inp
 
 
 def field_matvec_sub_(
@@ -788,18 +816,14 @@ def field_matvec_sub_(
     bound: int | str = "dct2",
     ndim: int = 1,
 ) -> Any:
-    """In place ``inp -= L @ field``; returns ``inp``."""
-    inp = as_gpu_array(inp, name="inp")
-    inp -= field_matvec(
-        field,
-        absolute,
-        membrane,
-        bending,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
+    """In place ``inp -= L @ field``; returns ``inp``.
+
+    Calls the fused in-place C primitive directly.
+    """
+    return _field_matvec_acc(
+        inp, field, absolute, membrane, bending,
+        voxel_size, bound, ndim, sub=True, inplace=True,
     )
-    return inp
 
 
 def field_diag_add(
@@ -812,17 +836,13 @@ def field_diag_add(
     bound: int | str = "dct2",
     ndim: int = 1,
 ) -> Any:
-    """Return ``inp + diag(L)`` (fresh), shaped like ``inp``."""
-    inp = as_gpu_array(inp, name="inp")
-    return inp + field_diag(
-        inp.shape,
-        absolute,
-        membrane,
-        bending,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
-        dtype=inp.dtype,
+    """Return ``inp + diag(L)`` as a **new** array, shaped like ``inp``.
+
+    Copies ``inp`` and runs the in-place accumulate primitive on the copy.
+    """
+    return _field_diag_acc(
+        inp, absolute, membrane, bending,
+        voxel_size, bound, ndim, sub=False, inplace=False,
     )
 
 
@@ -836,17 +856,13 @@ def field_diag_sub(
     bound: int | str = "dct2",
     ndim: int = 1,
 ) -> Any:
-    """Return ``inp - diag(L)`` (fresh), shaped like ``inp``."""
-    inp = as_gpu_array(inp, name="inp")
-    return inp - field_diag(
-        inp.shape,
-        absolute,
-        membrane,
-        bending,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
-        dtype=inp.dtype,
+    """Return ``inp - diag(L)`` as a **new** array, shaped like ``inp``.
+
+    Copies ``inp`` and runs the in-place accumulate primitive on the copy.
+    """
+    return _field_diag_acc(
+        inp, absolute, membrane, bending,
+        voxel_size, bound, ndim, sub=True, inplace=False,
     )
 
 
@@ -860,19 +876,14 @@ def field_diag_add_(
     bound: int | str = "dct2",
     ndim: int = 1,
 ) -> Any:
-    """In place ``inp += diag(L)``; returns ``inp``."""
-    inp = as_gpu_array(inp, name="inp")
-    inp += field_diag(
-        inp.shape,
-        absolute,
-        membrane,
-        bending,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
-        dtype=inp.dtype,
+    """In place ``inp += diag(L)``; returns ``inp``.
+
+    Calls the fused in-place C primitive directly.
+    """
+    return _field_diag_acc(
+        inp, absolute, membrane, bending,
+        voxel_size, bound, ndim, sub=False, inplace=True,
     )
-    return inp
 
 
 def field_diag_sub_(
@@ -885,16 +896,11 @@ def field_diag_sub_(
     bound: int | str = "dct2",
     ndim: int = 1,
 ) -> Any:
-    """In place ``inp -= diag(L)``; returns ``inp``."""
-    inp = as_gpu_array(inp, name="inp")
-    inp -= field_diag(
-        inp.shape,
-        absolute,
-        membrane,
-        bending,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
-        dtype=inp.dtype,
+    """In place ``inp -= diag(L)``; returns ``inp``.
+
+    Calls the fused in-place C primitive directly.
+    """
+    return _field_diag_acc(
+        inp, absolute, membrane, bending,
+        voxel_size, bound, ndim, sub=True, inplace=True,
     )
-    return inp
