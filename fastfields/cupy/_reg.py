@@ -20,28 +20,28 @@ from ._util import as_gpu_array, cupy, current_stream_ptr
 
 __all__ = [
     "field_matvec",
-    "field_matvec_add",
-    "field_matvec_add_",
-    "field_matvec_sub",
-    "field_matvec_sub_",
+    "field_addmatvec",
+    "field_addmatvec_",
+    "field_submatvec",
+    "field_submatvec_",
     "field_diag",
-    "field_diag_add",
-    "field_diag_add_",
-    "field_diag_sub",
-    "field_diag_sub_",
+    "field_adddiag",
+    "field_adddiag_",
+    "field_subdiag",
+    "field_subdiag_",
     "field_kernel",
     "field_precond",
     "field_forward",
     "flow_matvec",
-    "flow_matvec_add",
-    "flow_matvec_add_",
-    "flow_matvec_sub",
-    "flow_matvec_sub_",
+    "flow_addmatvec",
+    "flow_addmatvec_",
+    "flow_submatvec",
+    "flow_submatvec_",
     "flow_diag",
-    "flow_diag_add",
-    "flow_diag_add_",
-    "flow_diag_sub",
-    "flow_diag_sub_",
+    "flow_adddiag",
+    "flow_adddiag_",
+    "flow_subdiag",
+    "flow_subdiag_",
     "flow_kernel",
     "flow_relax",
     "flow_precond",
@@ -91,7 +91,7 @@ def _field_matvec_acc(inp, field, absolute, membrane, bending, voxel_size,
     field = as_gpu_array(field, name="field")
     acc = inp if inplace else inp.copy()
     channels = field.shape[-1]
-    fn = _ff.field_matvec_sub_ if sub else _ff.field_matvec_add_
+    fn = _ff.field_submatvec_ if sub else _ff.field_addmatvec_
     fn(
         acc,
         field,
@@ -111,7 +111,7 @@ def _field_diag_acc(inp, absolute, membrane, bending, voxel_size, bound, ndim,
     inp = as_gpu_array(inp, name="inp")
     acc = inp if inplace else inp.copy()
     channels = acc.shape[-1]
-    fn = _ff.field_diag_sub_ if sub else _ff.field_diag_add_
+    fn = _ff.field_subdiag_ if sub else _ff.field_adddiag_
     fn(
         acc,
         _voxel(voxel_size, ndim),
@@ -130,7 +130,7 @@ def _flow_matvec_acc(inp, flow, absolute, membrane, bending, shears, div,
     inp = as_gpu_array(inp, name="inp")
     flow = as_gpu_array(flow, name="flow")
     acc = inp if inplace else inp.copy()
-    fn = _ff.flow_matvec_sub_ if sub else _ff.flow_matvec_add_
+    fn = _ff.flow_submatvec_ if sub else _ff.flow_addmatvec_
     fn(
         acc,
         flow,
@@ -151,7 +151,7 @@ def _flow_diag_acc(inp, absolute, membrane, bending, shears, div, voxel_size,
                    bound, ndim, sub, inplace):
     inp = as_gpu_array(inp, name="inp")
     acc = inp if inplace else inp.copy()
-    fn = _ff.flow_diag_sub_ if sub else _ff.flow_diag_add_
+    fn = _ff.flow_subdiag_ if sub else _ff.flow_adddiag_
     fn(
         acc,
         _voxel(voxel_size, ndim),
@@ -510,7 +510,7 @@ def flow_forward(
 # forms, as thin compositions ``inp ± op(...)`` over flow_matvec / flow_diag.
 
 
-def flow_matvec_add(
+def flow_addmatvec(
     inp: Any,
     flow: Any,
     absolute: float = 0.0,
@@ -533,7 +533,7 @@ def flow_matvec_add(
     )
 
 
-def flow_matvec_sub(
+def flow_submatvec(
     inp: Any,
     flow: Any,
     absolute: float = 0.0,
@@ -556,7 +556,7 @@ def flow_matvec_sub(
     )
 
 
-def flow_matvec_add_(
+def flow_addmatvec_(
     inp: Any,
     flow: Any,
     absolute: float = 0.0,
@@ -579,7 +579,7 @@ def flow_matvec_add_(
     )
 
 
-def flow_matvec_sub_(
+def flow_submatvec_(
     inp: Any,
     flow: Any,
     absolute: float = 0.0,
@@ -602,7 +602,7 @@ def flow_matvec_sub_(
     )
 
 
-def flow_diag_add(
+def flow_adddiag(
     inp: Any,
     absolute: float = 0.0,
     membrane: float = 0.0,
@@ -624,7 +624,7 @@ def flow_diag_add(
     )
 
 
-def flow_diag_sub(
+def flow_subdiag(
     inp: Any,
     absolute: float = 0.0,
     membrane: float = 0.0,
@@ -646,7 +646,7 @@ def flow_diag_sub(
     )
 
 
-def flow_diag_add_(
+def flow_adddiag_(
     inp: Any,
     absolute: float = 0.0,
     membrane: float = 0.0,
@@ -668,7 +668,7 @@ def flow_diag_add_(
     )
 
 
-def flow_diag_sub_(
+def flow_subdiag_(
     inp: Any,
     absolute: float = 0.0,
     membrane: float = 0.0,
@@ -742,7 +742,7 @@ def field_forward(
     return out
 
 
-def field_matvec_add(
+def field_addmatvec(
     inp: Any,
     field: Any,
     absolute=None,
@@ -763,7 +763,7 @@ def field_matvec_add(
     )
 
 
-def field_matvec_sub(
+def field_submatvec(
     inp: Any,
     field: Any,
     absolute=None,
@@ -784,7 +784,7 @@ def field_matvec_sub(
     )
 
 
-def field_matvec_add_(
+def field_addmatvec_(
     inp: Any,
     field: Any,
     absolute=None,
@@ -805,7 +805,7 @@ def field_matvec_add_(
     )
 
 
-def field_matvec_sub_(
+def field_submatvec_(
     inp: Any,
     field: Any,
     absolute=None,
@@ -826,7 +826,7 @@ def field_matvec_sub_(
     )
 
 
-def field_diag_add(
+def field_adddiag(
     inp: Any,
     absolute=None,
     membrane=None,
@@ -846,7 +846,7 @@ def field_diag_add(
     )
 
 
-def field_diag_sub(
+def field_subdiag(
     inp: Any,
     absolute=None,
     membrane=None,
@@ -866,7 +866,7 @@ def field_diag_sub(
     )
 
 
-def field_diag_add_(
+def field_adddiag_(
     inp: Any,
     absolute=None,
     membrane=None,
@@ -886,7 +886,7 @@ def field_diag_add_(
     )
 
 
-def field_diag_sub_(
+def field_subdiag_(
     inp: Any,
     absolute=None,
     membrane=None,
