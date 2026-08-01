@@ -241,24 +241,24 @@ def test_pushpull_reg_surface_present():
         "count",
         "grad",
         "field_matvec",
-        "field_matvec_add",
-        "field_matvec_sub",
+        "field_addmatvec",
+        "field_submatvec",
         "field_diag",
-        "field_diag_add",
-        "field_diag_sub",
+        "field_adddiag",
+        "field_subdiag",
         "field_kernel",
         "field_precond",
         "field_forward",
         "flow_matvec",
-        "flow_matvec_add",
-        "flow_matvec_add_",
-        "flow_matvec_sub",
-        "flow_matvec_sub_",
+        "flow_addmatvec",
+        "flow_addmatvec_",
+        "flow_submatvec",
+        "flow_submatvec_",
         "flow_diag",
-        "flow_diag_add",
-        "flow_diag_add_",
-        "flow_diag_sub",
-        "flow_diag_sub_",
+        "flow_adddiag",
+        "flow_adddiag_",
+        "flow_subdiag",
+        "flow_subdiag_",
         "flow_kernel",
         "flow_relax",
         "flow_precond",
@@ -385,15 +385,15 @@ def test_flow_accumulate_variants_gpu():
     kw = dict(absolute=0.3, membrane=0.7, shears=1.0, div=0.5, ndim=2)
     L = ffc.flow_matvec(flow, **kw)
     d = ffc.flow_diag(base.shape, **kw)
-    assert cupy.allclose(ffc.flow_matvec_add(base, flow, **kw), base + L)
-    assert cupy.allclose(ffc.flow_matvec_sub(base, flow, **kw), base - L)
-    assert cupy.allclose(ffc.flow_diag_add(base, **kw), base + d)
-    assert cupy.allclose(ffc.flow_diag_sub(base, **kw), base - d)
+    assert cupy.allclose(ffc.flow_addmatvec(base, flow, **kw), base + L)
+    assert cupy.allclose(ffc.flow_submatvec(base, flow, **kw), base - L)
+    assert cupy.allclose(ffc.flow_adddiag(base, **kw), base + d)
+    assert cupy.allclose(ffc.flow_subdiag(base, **kw), base - d)
     a = base.copy()
-    assert ffc.flow_matvec_add_(a, flow, **kw) is a
+    assert ffc.flow_addmatvec_(a, flow, **kw) is a
     assert cupy.allclose(a, base + L)
     s = base.copy()
-    assert ffc.flow_diag_sub_(s, **kw) is s
+    assert ffc.flow_subdiag_(s, **kw) is s
     assert cupy.allclose(s, base - d)
 
 
@@ -418,7 +418,7 @@ def test_field_precond_forward_accumulate_gpu():
     assert cupy.allclose(residual, cupy.zeros_like(residual), atol=1e-5)
     base = cupy.asarray(rng.standard_normal((H, W, C)))
     L = ffc.field_matvec(vec, **kw)
-    assert cupy.allclose(ffc.field_matvec_add(base, vec, **kw), base + L)
+    assert cupy.allclose(ffc.field_addmatvec(base, vec, **kw), base + L)
 
 
 def test_field_kernel_is_matvec_impulse_response_gpu():
@@ -449,3 +449,48 @@ def test_field_kernel_is_matvec_impulse_response_gpu():
                         got = float(o[cc + a - half, cc + b - half, c])
                         kern = float(K[a, b, c]) if c == c0 else 0.0
                         assert abs(got - kern) < 1e-10
+
+
+# --------------------------------------------------------------------------- #
+# Accumulate ops: one in-place kernel, two spellings                          #
+#                                                                             #
+# The C primitive is in-place only; the out-of-place spelling copies       #
+# first and runs that same primitive. GPU-gated, as every test here.       #
+# --------------------------------------------------------------------------- #
+def test_accumulate_inplace_and_out_of_place():
+    cupy = _require_gpu()
+    import fastfields.cupy as ffc
+    kw = dict(absolute=[0.3, 0.4], membrane=[0.7, 0.5], ndim=2)
+    H, W, C = 4, 5, 2
+    rng = np.random.default_rng(21)
+    field = cupy.asarray(rng.standard_normal((H, W, C)))
+    base = cupy.asarray(rng.standard_normal((H, W, C)))
+    before = base.copy()
+
+    # out-of-place must not touch the caller's array
+    out = ffc.field_addmatvec(base, field, **kw)
+    assert bool((base == before).all())
+    assert out is not base
+
+    # in-place mutates and returns the same array
+    a = base.copy()
+    assert ffc.field_addmatvec_(a, field, **kw) is a
+    assert not bool((a == base).all())
+
+    # and both spellings agree exactly (same single kernel)
+    assert bool((a == out).all())
+
+
+def test_accumulate_matches_reference_composition():
+    cupy = _require_gpu()
+    import fastfields.cupy as ffc
+    kw = dict(absolute=0.3, membrane=0.7, shears=1.0, div=0.5, ndim=2)
+    H, W = 5, 6
+    rng = np.random.default_rng(23)
+    flow = cupy.asarray(rng.standard_normal((H, W, 2)))
+    base = cupy.asarray(rng.standard_normal((H, W, 2)))
+    L = ffc.flow_matvec(flow, **kw)
+    got = ffc.flow_addmatvec(base, flow, **kw)
+    assert float(abs(got - (base + L)).max()) < 1e-12
+    got = ffc.flow_submatvec(base, flow, **kw)
+    assert float(abs(got - (base - L)).max()) < 1e-12
