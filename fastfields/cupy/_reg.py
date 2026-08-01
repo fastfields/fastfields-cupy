@@ -85,8 +85,18 @@ def _voxel(value, ndim: int) -> Optional[list]:
 # caller's array first and runs the same primitive on the copy.
 
 
-def _field_matvec_acc(inp, field, absolute, membrane, bending, voxel_size,
-                      bound, ndim, sub, inplace):
+def _field_matvec_acc(
+    inp,
+    field,
+    absolute,
+    membrane,
+    bending,
+    voxel_size,
+    bound,
+    ndim,
+    sub,
+    inplace,
+):
     inp = as_gpu_array(inp, name="inp")
     field = as_gpu_array(field, name="field")
     acc = inp if inplace else inp.copy()
@@ -106,8 +116,9 @@ def _field_matvec_acc(inp, field, absolute, membrane, bending, voxel_size,
     return acc
 
 
-def _field_diag_acc(inp, absolute, membrane, bending, voxel_size, bound, ndim,
-                    sub, inplace):
+def _field_diag_acc(
+    inp, absolute, membrane, bending, voxel_size, bound, ndim, sub, inplace
+):
     inp = as_gpu_array(inp, name="inp")
     acc = inp if inplace else inp.copy()
     channels = acc.shape[-1]
@@ -125,8 +136,20 @@ def _field_diag_acc(inp, absolute, membrane, bending, voxel_size, bound, ndim,
     return acc
 
 
-def _flow_matvec_acc(inp, flow, absolute, membrane, bending, shears, div,
-                     voxel_size, bound, ndim, sub, inplace):
+def _flow_matvec_acc(
+    inp,
+    flow,
+    absolute,
+    membrane,
+    bending,
+    shears,
+    div,
+    voxel_size,
+    bound,
+    ndim,
+    sub,
+    inplace,
+):
     inp = as_gpu_array(inp, name="inp")
     flow = as_gpu_array(flow, name="flow")
     acc = inp if inplace else inp.copy()
@@ -147,8 +170,19 @@ def _flow_matvec_acc(inp, flow, absolute, membrane, bending, shears, div,
     return acc
 
 
-def _flow_diag_acc(inp, absolute, membrane, bending, shears, div, voxel_size,
-                   bound, ndim, sub, inplace):
+def _flow_diag_acc(
+    inp,
+    absolute,
+    membrane,
+    bending,
+    shears,
+    div,
+    voxel_size,
+    bound,
+    ndim,
+    sub,
+    inplace,
+):
     inp = as_gpu_array(inp, name="inp")
     acc = inp if inplace else inp.copy()
     fn = _ff.flow_subdiag_ if sub else _ff.flow_adddiag_
@@ -528,8 +562,18 @@ def flow_addmatvec(
     Copies ``inp`` and runs the in-place accumulate primitive on the copy.
     """
     return _flow_matvec_acc(
-        inp, flow, absolute, membrane, bending, shears, div,
-        voxel_size, bound, ndim, sub=False, inplace=False,
+        inp,
+        flow,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size,
+        bound,
+        ndim,
+        sub=False,
+        inplace=False,
     )
 
 
@@ -551,8 +595,18 @@ def flow_submatvec(
     Copies ``inp`` and runs the in-place accumulate primitive on the copy.
     """
     return _flow_matvec_acc(
-        inp, flow, absolute, membrane, bending, shears, div,
-        voxel_size, bound, ndim, sub=True, inplace=False,
+        inp,
+        flow,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size,
+        bound,
+        ndim,
+        sub=True,
+        inplace=False,
     )
 
 
@@ -574,8 +628,18 @@ def flow_addmatvec_(
     Calls the fused in-place C primitive directly.
     """
     return _flow_matvec_acc(
-        inp, flow, absolute, membrane, bending, shears, div,
-        voxel_size, bound, ndim, sub=False, inplace=True,
+        inp,
+        flow,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size,
+        bound,
+        ndim,
+        sub=False,
+        inplace=True,
     )
 
 
@@ -597,8 +661,18 @@ def flow_submatvec_(
     Calls the fused in-place C primitive directly.
     """
     return _flow_matvec_acc(
-        inp, flow, absolute, membrane, bending, shears, div,
-        voxel_size, bound, ndim, sub=True, inplace=True,
+        inp,
+        flow,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size,
+        bound,
+        ndim,
+        sub=True,
+        inplace=True,
     )
 
 
@@ -619,8 +693,17 @@ def flow_adddiag(
     Copies ``inp`` and runs the in-place accumulate primitive on the copy.
     """
     return _flow_diag_acc(
-        inp, absolute, membrane, bending, shears, div,
-        voxel_size, bound, ndim, sub=False, inplace=False,
+        inp,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size,
+        bound,
+        ndim,
+        sub=False,
+        inplace=False,
     )
 
 
@@ -641,8 +724,17 @@ def flow_subdiag(
     Copies ``inp`` and runs the in-place accumulate primitive on the copy.
     """
     return _flow_diag_acc(
-        inp, absolute, membrane, bending, shears, div,
-        voxel_size, bound, ndim, sub=True, inplace=False,
+        inp,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size,
+        bound,
+        ndim,
+        sub=True,
+        inplace=False,
     )
 
 
@@ -663,8 +755,17 @@ def flow_adddiag_(
     Calls the fused in-place C primitive directly.
     """
     return _flow_diag_acc(
-        inp, absolute, membrane, bending, shears, div,
-        voxel_size, bound, ndim, sub=False, inplace=True,
+        inp,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size,
+        bound,
+        ndim,
+        sub=False,
+        inplace=True,
     )
 
 
@@ -685,8 +786,17 @@ def flow_subdiag_(
     Calls the fused in-place C primitive directly.
     """
     return _flow_diag_acc(
-        inp, absolute, membrane, bending, shears, div,
-        voxel_size, bound, ndim, sub=True, inplace=True,
+        inp,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size,
+        bound,
+        ndim,
+        sub=True,
+        inplace=True,
     )
 
 
@@ -758,8 +868,16 @@ def field_addmatvec(
     Copies ``inp`` and runs the in-place accumulate primitive on the copy.
     """
     return _field_matvec_acc(
-        inp, field, absolute, membrane, bending,
-        voxel_size, bound, ndim, sub=False, inplace=False,
+        inp,
+        field,
+        absolute,
+        membrane,
+        bending,
+        voxel_size,
+        bound,
+        ndim,
+        sub=False,
+        inplace=False,
     )
 
 
@@ -779,8 +897,16 @@ def field_submatvec(
     Copies ``inp`` and runs the in-place accumulate primitive on the copy.
     """
     return _field_matvec_acc(
-        inp, field, absolute, membrane, bending,
-        voxel_size, bound, ndim, sub=True, inplace=False,
+        inp,
+        field,
+        absolute,
+        membrane,
+        bending,
+        voxel_size,
+        bound,
+        ndim,
+        sub=True,
+        inplace=False,
     )
 
 
@@ -800,8 +926,16 @@ def field_addmatvec_(
     Calls the fused in-place C primitive directly.
     """
     return _field_matvec_acc(
-        inp, field, absolute, membrane, bending,
-        voxel_size, bound, ndim, sub=False, inplace=True,
+        inp,
+        field,
+        absolute,
+        membrane,
+        bending,
+        voxel_size,
+        bound,
+        ndim,
+        sub=False,
+        inplace=True,
     )
 
 
@@ -821,8 +955,16 @@ def field_submatvec_(
     Calls the fused in-place C primitive directly.
     """
     return _field_matvec_acc(
-        inp, field, absolute, membrane, bending,
-        voxel_size, bound, ndim, sub=True, inplace=True,
+        inp,
+        field,
+        absolute,
+        membrane,
+        bending,
+        voxel_size,
+        bound,
+        ndim,
+        sub=True,
+        inplace=True,
     )
 
 
@@ -841,8 +983,15 @@ def field_adddiag(
     Copies ``inp`` and runs the in-place accumulate primitive on the copy.
     """
     return _field_diag_acc(
-        inp, absolute, membrane, bending,
-        voxel_size, bound, ndim, sub=False, inplace=False,
+        inp,
+        absolute,
+        membrane,
+        bending,
+        voxel_size,
+        bound,
+        ndim,
+        sub=False,
+        inplace=False,
     )
 
 
@@ -861,8 +1010,15 @@ def field_subdiag(
     Copies ``inp`` and runs the in-place accumulate primitive on the copy.
     """
     return _field_diag_acc(
-        inp, absolute, membrane, bending,
-        voxel_size, bound, ndim, sub=True, inplace=False,
+        inp,
+        absolute,
+        membrane,
+        bending,
+        voxel_size,
+        bound,
+        ndim,
+        sub=True,
+        inplace=False,
     )
 
 
@@ -881,8 +1037,15 @@ def field_adddiag_(
     Calls the fused in-place C primitive directly.
     """
     return _field_diag_acc(
-        inp, absolute, membrane, bending,
-        voxel_size, bound, ndim, sub=False, inplace=True,
+        inp,
+        absolute,
+        membrane,
+        bending,
+        voxel_size,
+        bound,
+        ndim,
+        sub=False,
+        inplace=True,
     )
 
 
@@ -901,6 +1064,13 @@ def field_subdiag_(
     Calls the fused in-place C primitive directly.
     """
     return _field_diag_acc(
-        inp, absolute, membrane, bending,
-        voxel_size, bound, ndim, sub=True, inplace=True,
+        inp,
+        absolute,
+        membrane,
+        bending,
+        voxel_size,
+        bound,
+        ndim,
+        sub=True,
+        inplace=True,
     )
