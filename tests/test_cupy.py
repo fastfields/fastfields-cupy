@@ -460,6 +460,7 @@ def test_field_kernel_is_matvec_impulse_response_gpu():
 def test_accumulate_inplace_and_out_of_place():
     cupy = _require_gpu()
     import fastfields.cupy as ffc
+
     kw = dict(absolute=[0.3, 0.4], membrane=[0.7, 0.5], ndim=2)
     H, W, C = 4, 5, 2
     rng = np.random.default_rng(21)
@@ -484,6 +485,7 @@ def test_accumulate_inplace_and_out_of_place():
 def test_accumulate_matches_reference_composition():
     cupy = _require_gpu()
     import fastfields.cupy as ffc
+
     kw = dict(absolute=0.3, membrane=0.7, shears=1.0, div=0.5, ndim=2)
     H, W = 5, 6
     rng = np.random.default_rng(23)
