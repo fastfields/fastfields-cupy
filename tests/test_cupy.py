@@ -247,6 +247,7 @@ def test_pushpull_reg_surface_present():
         "field_adddiag",
         "field_subdiag",
         "field_kernel",
+        "field_relax",
         "field_precond",
         "field_forward",
         "flow_matvec",
