@@ -79,7 +79,7 @@ def resample(
     """Spline resample (prolongation) of the last ``ndim`` axes.
 
     Allocates and returns the output array. The signature matches the
-    numpy/torch wrappers so ``fastfields.any.resample`` dispatches
+    numpy/torch wrappers so ``fastfields.auto.resample`` dispatches
     consistently.
 
     Parameters

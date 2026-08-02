@@ -4,7 +4,7 @@
   ``absolute`` / ``membrane`` / ``bending`` (a scalar broadcasts to ``C``).
 * **flow** — vector flow field; scalar penalties.
 
-Signatures match the numpy/torch wrappers so ``fastfields.any`` dispatches
+Signatures match the numpy/torch wrappers so ``fastfields.auto`` dispatches
 consistently.
 """
 

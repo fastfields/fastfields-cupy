@@ -2,7 +2,7 @@
 
 Channel-last, x-first coordinate convention. The spatial rank ``D`` is taken
 from ``grid``'s trailing axis; ``inp`` and ``grid`` must share the same rank.
-Signatures match the numpy/torch wrappers so ``fastfields.any`` dispatches
+Signatures match the numpy/torch wrappers so ``fastfields.auto`` dispatches
 consistently.
 """
 
