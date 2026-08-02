@@ -1,11 +1,11 @@
 # fastfields-cupy  (imports as `fastfields.cupy`)
 
 A user-friendly **cupy** interface over the `fastfields.dlpack`
-(`fastfields-bind-py`) bindings — the numpy-style API, but on cupy arrays in
+bindings — the numpy-style API, but on cupy arrays in
 **CUDA device memory**.
 
 ```
-… ─ lib ─ bind-py ─ cupy ← (you are here) … ─ fastfields
+… ─ lib ─ dlpack ─ cupy ← (you are here) … ─ fastfields
 ```
 
 ## Philosophy / role
