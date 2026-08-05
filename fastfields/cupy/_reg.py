@@ -31,6 +31,9 @@ __all__ = [
     "field_subdiag_",
     "field_kernel",
     "field_relax",
+    "field_matvec_rls",
+    "field_diag_rls",
+    "field_relax_rls",
     "field_precond",
     "field_forward",
     "flow_matvec",
@@ -376,6 +379,132 @@ def field_relax(
         field,
         hes,
         grd,
+        _voxel(voxel_size, ndim),
+        _per_channel(absolute, channels, "absolute"),
+        _per_channel(membrane, channels, "membrane"),
+        _per_channel(bending, channels, "bending"),
+        as_bound(bound),
+        ndim,
+        int(nb_iter),
+        current_stream_ptr(),
+    )
+    return field
+
+
+def field_matvec_rls(
+    inp: Any,
+    wgt: Any,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """RLS/JRLS-weighted variant of :func:`field_matvec`.
+
+    ``wgt`` has shape ``(*batch, *spatial, 1)`` for a single weight shared
+    across all channels (RLS), or ``(*batch, *spatial, C)`` for a genuine
+    per-channel weight (JRLS, ``C`` matching ``inp``'s channel count) --
+    the trailing dimension of ``wgt`` selects which mode is used.
+    """
+    cp = cupy()
+    inp = as_gpu_array(inp, name="inp")
+    wgt = as_gpu_array(wgt, name="wgt")
+    channels = inp.shape[-1]
+    out = cp.zeros(inp.shape, dtype=inp.dtype)
+    _ff.field_matvec_rls(
+        out,
+        inp,
+        wgt,
+        _voxel(voxel_size, ndim),
+        _per_channel(absolute, channels, "absolute"),
+        _per_channel(membrane, channels, "membrane"),
+        _per_channel(bending, channels, "bending"),
+        as_bound(bound),
+        ndim,
+        current_stream_ptr(),
+    )
+    return out
+
+
+def field_diag_rls(
+    wgt: Any,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    channels: int | None = None,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+    dtype: Any = None,
+) -> Any:
+    """Diagonal (preconditioner) of :func:`field_matvec_rls`.
+
+    ``wgt`` selects RLS (trailing dim 1) vs JRLS (trailing dim ``C``), same
+    as :func:`field_matvec_rls`. The output channel count ``C`` is taken
+    from ``channels`` if given, else from ``wgt``'s trailing dimension when
+    it is not 1 (JRLS), else inferred from the per-channel penalty lengths
+    (default 1), exactly as :func:`field_kernel` does.
+    """
+    cp = cupy()
+    wgt = as_gpu_array(wgt, name="wgt")
+    if channels is None:
+        channels = (
+            wgt.shape[-1]
+            if wgt.shape[-1] != 1
+            else _field_channels(None, absolute, membrane, bending)
+        )
+    out = cp.zeros(
+        tuple(wgt.shape[:-1]) + (channels,), dtype=dtype or cp.float64
+    )
+    _ff.field_diag_rls(
+        out,
+        wgt,
+        _voxel(voxel_size, ndim),
+        _per_channel(absolute, channels, "absolute"),
+        _per_channel(membrane, channels, "membrane"),
+        _per_channel(bending, channels, "bending"),
+        as_bound(bound),
+        ndim,
+        current_stream_ptr(),
+    )
+    return out
+
+
+def field_relax_rls(
+    field: Any,
+    hes: Any,
+    grd: Any,
+    wgt: Any,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+    nb_iter: int = 1,
+) -> Any:
+    """RLS/JRLS-weighted variant of :func:`field_relax`.
+
+    Refines ``field`` in place with ``nb_iter`` relaxation sweeps of
+    ``(H + L(w)) x = g``, same ``wgt`` conventions as
+    :func:`field_matvec_rls`. ``field`` is the warm start, mutated in place
+    and returned.
+    """
+    field = as_gpu_array(field, name="field")
+    hes = as_gpu_array(hes, name="hes")
+    grd = as_gpu_array(grd, name="grd")
+    wgt = as_gpu_array(wgt, name="wgt")
+    channels = field.shape[-1]
+    _ff.field_relax_rls(
+        field,
+        hes,
+        grd,
+        wgt,
         _voxel(voxel_size, ndim),
         _per_channel(absolute, channels, "absolute"),
         _per_channel(membrane, channels, "membrane"),
