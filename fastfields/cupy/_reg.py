@@ -48,6 +48,9 @@ __all__ = [
     "flow_subdiag_",
     "flow_kernel",
     "flow_relax",
+    "flow_matvec_rls",
+    "flow_diag_rls",
+    "flow_relax_rls",
     "flow_precond",
     "flow_forward",
 ]
@@ -623,6 +626,137 @@ def flow_relax(
         flow,
         hes,
         grd,
+        _voxel(voxel_size, ndim),
+        float(absolute),
+        float(membrane),
+        float(bending),
+        float(shears),
+        float(div),
+        as_bound(bound),
+        ndim,
+        int(nb_iter),
+        current_stream_ptr(),
+    )
+    return flow
+
+
+def flow_matvec_rls(
+    inp: Any,
+    wgt: Any,
+    absolute: float = 0.0,
+    membrane: float = 0.0,
+    bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """RLS/JRLS-weighted variant of :func:`flow_matvec`.
+
+    ``wgt`` has shape ``(*batch, *spatial, 1)``: unlike the field family, the
+    flow weighting is always *joint* -- the trailing axis of a flow field
+    holds the components of one displacement vector, so a single weight is
+    shared across them.
+
+    ``bending`` is **not supported** with weighting (no weighted bending
+    kernel exists, as in ``jitfields``); a non-zero value raises.
+    """
+    cp = cupy()
+    inp = as_gpu_array(inp, name="inp")
+    wgt = as_gpu_array(wgt, name="wgt")
+    out = cp.zeros(inp.shape, dtype=inp.dtype)
+    _ff.flow_matvec_rls(
+        out,
+        inp,
+        wgt,
+        _voxel(voxel_size, ndim),
+        float(absolute),
+        float(membrane),
+        float(bending),
+        float(shears),
+        float(div),
+        as_bound(bound),
+        ndim,
+        current_stream_ptr(),
+    )
+    return out
+
+
+def flow_diag_rls(
+    wgt: Any,
+    absolute: float = 0.0,
+    membrane: float = 0.0,
+    bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+    dtype: Any = None,
+) -> Any:
+    """Diagonal (preconditioner) of :func:`flow_matvec_rls`.
+
+    Unlike plain :func:`flow_diag`, which builds from a *shape*, this one is
+    driven by the weight map: the output is ``wgt.shape[:-1] + (ndim,)``,
+    since a flow field's channel count is ``ndim``. Same ``wgt`` conventions
+    as :func:`flow_matvec_rls`.
+    """
+    cp = cupy()
+    wgt = as_gpu_array(wgt, name="wgt")
+    out = cp.zeros(
+        tuple(wgt.shape[:-1]) + (int(ndim),), dtype=dtype or cp.float64
+    )
+    _ff.flow_diag_rls(
+        out,
+        wgt,
+        _voxel(voxel_size, ndim),
+        float(absolute),
+        float(membrane),
+        float(bending),
+        float(shears),
+        float(div),
+        as_bound(bound),
+        ndim,
+        current_stream_ptr(),
+    )
+    return out
+
+
+def flow_relax_rls(
+    flow: Any,
+    hes: Any,
+    grd: Any,
+    wgt: Any,
+    absolute: float = 0.0,
+    membrane: float = 0.0,
+    bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+    nb_iter: int = 1,
+) -> Any:
+    """RLS/JRLS-weighted variant of :func:`flow_relax`.
+
+    Refines ``flow`` in place with ``nb_iter`` relaxation sweeps of
+    ``(H + L(w)) x = g``, same ``wgt`` conventions as
+    :func:`flow_matvec_rls`. ``flow`` is the warm start, mutated in place
+    and returned.
+    """
+    flow = as_gpu_array(flow, name="flow")
+    hes = as_gpu_array(hes, name="hes")
+    grd = as_gpu_array(grd, name="grd")
+    wgt = as_gpu_array(wgt, name="wgt")
+    _ff.flow_relax_rls(
+        flow,
+        hes,
+        grd,
+        wgt,
         _voxel(voxel_size, ndim),
         float(absolute),
         float(membrane),
