@@ -182,23 +182,36 @@ def dt_mesh(
     vertices. Returns ``dist`` shaped ``loc.shape[:-1]``. If ``return_nearest``
     is set, returns ``(dist, nearest_vertex)`` with ``nearest_vertex`` holding
     the index of the closest vertex.
+
+    A **single** mesh is queried by an arbitrarily batched point set: only
+    ``loc`` carries batch dims. ``vertices``/``faces`` are *not* broadcast
+    against that batch -- they must be exactly ``(V, D)`` / ``(M, D)``,
+    matching jitfields' ``mesh_distance`` and the ``ff::dt_mesh`` contract
+    (see fastfields#32).
     """
     cp = cupy()
     loc = as_gpu_array(loc, name="loc")
     vertices = as_gpu_array(vertices, name="vertices")
     faces = cp.asarray(faces)  # native strides preserved (stride-aware kernel)
-    # cores: loc (D,), vertices (N, D), faces (M, D); batch dims broadcast.
-    batch, (loc_b, vert_b, faces_b) = broadcast_batch(
-        [(loc, 1), (vertices, 2), (faces, 2)]
-    )
+    if vertices.ndim != 2:
+        raise ValueError(
+            "dt_mesh: vertices must be a 2D (V, D) array describing a single "
+            f"mesh, got shape {vertices.shape}"
+        )
+    if faces.ndim != 2:
+        raise ValueError(
+            "dt_mesh: faces must be a 2D (M, D) array describing a single "
+            f"mesh, got shape {faces.shape}"
+        )
+    batch = loc.shape[:-1]
     dist = cp.empty(batch, dtype=loc.dtype)
     nearest = cp.empty(batch, dtype=cp.int64) if return_nearest else None
     _ff.dt_mesh(
         dist,
         nearest,
-        loc_b,
-        vert_b,
-        faces_b,
+        loc,
+        vertices,
+        faces,
         signed,
         naive,
         current_stream_ptr(),
