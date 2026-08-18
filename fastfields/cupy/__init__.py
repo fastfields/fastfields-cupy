@@ -28,8 +28,8 @@ is actually called.
 
 from __future__ import annotations
 
-# Spline / Bound are plain IntEnums in fastfields_bind (no cupy needed).
-from fastfields.dlpack import Bound, Spline
+# Spline / Bound are plain IntEnums in fastfields.helpers (no cupy needed).
+from fastfields.helpers import Bound, Spline
 
 from ._dt import (
     dt_euclidean,
