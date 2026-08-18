@@ -25,7 +25,7 @@ def test_import_without_cupy():
     """`import fastfields.cupy` must not hard-fail when cupy is missing."""
     import fastfields.cupy as ffc
 
-    # Enums come straight from fastfields.dlpack (no cupy needed).
+    # Enums come straight from fastfields.helpers (no cupy needed).
     assert int(ffc.Spline.Cubic) == 3
     assert int(ffc.Bound.DCT2) == 3
     for name in ("dt_euclidean", "sym_matvec", "resample", "spline_coeff"):
@@ -34,7 +34,7 @@ def test_import_without_cupy():
 
 def test_anchor_scale_shift_mapping():
     """The anchor->(scale, shift) mapping is pure Python (no cupy needed)."""
-    from fastfields.dlpack import anchor_scale_shift as _anchor_scale_shift
+    from fastfields.helpers import anchor_scale_shift as _anchor_scale_shift
 
     for name, abbr, exp_scale, exp_shift in [
         ("centers", "c", 7 / 3, 0.0),
@@ -50,7 +50,7 @@ def test_anchor_scale_shift_mapping():
 
 
 def test_anchor_unknown_raises():
-    from fastfields.dlpack import anchor_scale_shift as _anchor_scale_shift
+    from fastfields.helpers import anchor_scale_shift as _anchor_scale_shift
 
     with pytest.raises(ValueError, match="anchor"):
         _anchor_scale_shift("nope", (8,), (4,), 1)
@@ -58,10 +58,10 @@ def test_anchor_unknown_raises():
 
 def test_factor_shape_resolution_no_cupy():
     """factor/shape/ndim resolution is pure Python (no cupy needed)."""
-    from fastfields.dlpack import (
+    from fastfields.helpers import (
         infer_ndim as _infer_ndim,
     )
-    from fastfields.dlpack import (
+    from fastfields.helpers import (
         resolve_out_spatial as _resolve_out_spatial,
     )
 
@@ -78,7 +78,7 @@ def test_factor_shape_resolution_no_cupy():
 
 def test_order_bound_aliases_no_cupy():
     """order/bound accept int, enum or name (no cupy needed)."""
-    from fastfields.dlpack import Bound, as_bound, as_spline
+    from fastfields.helpers import Bound, as_bound, as_spline
 
     assert as_spline("linear") == 1
     assert as_spline(3) == 3

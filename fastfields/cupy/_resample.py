@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Optional, Sequence
 
 import fastfields.dlpack as _ff
-from fastfields.dlpack import (
+from fastfields.helpers import (
     anchor_scale_shift,
     as_bound,
     as_spline,
@@ -41,7 +41,7 @@ def _resolve(
     """Resolve (full output shape, per-dim scale, scalar shift) for a call.
 
     The order/bound normalisation and the anchor/factor/shape resolution come
-    from :mod:`fastfields.dlpack` so every backend shares one implementation.
+    from :mod:`fastfields.helpers` so every backend shares one implementation.
     Raises ``ValueError`` if ``ndim`` is outside ``1..inp.ndim`` or an explicit
     ``scale`` has the wrong length.
     """
@@ -101,7 +101,7 @@ def resample(
         Number of trailing spatial dimensions (inferred when omitted).
     anchor : {"centers", "edges", "first", "last"}, default="centers"
         Sampling-grid convention, matching ``interpol.resize`` (see
-        :func:`fastfields.dlpack.anchor_scale_shift`). Abbreviations
+        :func:`fastfields.helpers.anchor_scale_shift`). Abbreviations
         accepted.
     shift : float, optional
         Sampling-shift override (default: the shift implied by ``anchor``).

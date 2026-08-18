@@ -43,7 +43,11 @@ classifiers = [
 # (fires when `git describe` can't find a tag, e.g. a shallow-clone CI
 # misconfiguration) would also satisfy `==0.*` if it were ever accidentally
 # published. That's an accepted risk, not something this pin tries to solve.
-dependencies = ["fastfields-dlpack==0.*"]
+# fastfields-helpers is the pure-Python enums/normalisation package this
+# wrapper's argument handling is built on -- same bare-wildcard convention
+# as fastfields-dlpack above, for the same reason: it moves on the same 0.x
+# line.
+dependencies = ["fastfields-dlpack==0.*", "fastfields-helpers==0.*"]
 
 [project.optional-dependencies]
 # Pulls a prebuilt CUDA 12.x cupy wheel. Pick the build matching your CUDA

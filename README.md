@@ -11,7 +11,7 @@ memory with them at zero copy.
 ## Install
 
 ```bash
-pip install fastfields-cupy            # pulls fastfields-dlpack
+pip install fastfields-cupy            # pulls fastfields-dlpack + fastfields-helpers
 pip install "fastfields-cupy[cupy]"    # also install a CUDA 12.x cupy build
 ```
 

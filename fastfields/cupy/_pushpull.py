@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 import fastfields.dlpack as _ff
-from fastfields.dlpack import as_bound, as_spline
+from fastfields.helpers import as_bound, as_spline
 
 from ._util import as_gpu_array, cupy, current_stream_ptr
 

@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any, Optional, Sequence
 
 import fastfields.dlpack as _ff
-from fastfields.dlpack import as_bound
+from fastfields.helpers import as_bound
 
 from ._sym import sym_matvec, sym_solve
 from ._util import as_gpu_array, cupy, current_stream_ptr
