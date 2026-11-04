@@ -1618,8 +1618,15 @@ def field_addkernel(
     output shape ``inp`` must match).
     """
     return _field_kernel_acc(
-        inp, absolute, membrane, bending, voxel_size, bound, ndim,
-        sub=False, inplace=False,
+        inp,
+        absolute,
+        membrane,
+        bending,
+        voxel_size,
+        bound,
+        ndim,
+        sub=False,
+        inplace=False,
     )
 
 
@@ -1635,8 +1642,15 @@ def field_subkernel(
 ) -> Any:
     """Return ``inp - K`` as a **new** array, shaped like ``inp``."""
     return _field_kernel_acc(
-        inp, absolute, membrane, bending, voxel_size, bound, ndim,
-        sub=True, inplace=False,
+        inp,
+        absolute,
+        membrane,
+        bending,
+        voxel_size,
+        bound,
+        ndim,
+        sub=True,
+        inplace=False,
     )
 
 
@@ -1652,8 +1666,15 @@ def field_addkernel_(
 ) -> Any:
     """In place: ``inp += K``. Mutates and returns ``inp``."""
     return _field_kernel_acc(
-        inp, absolute, membrane, bending, voxel_size, bound, ndim,
-        sub=False, inplace=True,
+        inp,
+        absolute,
+        membrane,
+        bending,
+        voxel_size,
+        bound,
+        ndim,
+        sub=False,
+        inplace=True,
     )
 
 
@@ -1669,8 +1690,15 @@ def field_subkernel_(
 ) -> Any:
     """In place: ``inp -= K``. Mutates and returns ``inp``."""
     return _field_kernel_acc(
-        inp, absolute, membrane, bending, voxel_size, bound, ndim,
-        sub=True, inplace=True,
+        inp,
+        absolute,
+        membrane,
+        bending,
+        voxel_size,
+        bound,
+        ndim,
+        sub=True,
+        inplace=True,
     )
 
 
@@ -1692,8 +1720,17 @@ def flow_addkernel(
     output shape ``inp`` must match).
     """
     return _flow_kernel_acc(
-        inp, absolute, membrane, bending, shears, div, voxel_size, bound,
-        ndim, sub=False, inplace=False,
+        inp,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size,
+        bound,
+        ndim,
+        sub=False,
+        inplace=False,
     )
 
 
@@ -1711,8 +1748,17 @@ def flow_subkernel(
 ) -> Any:
     """Return ``inp - K`` as a **new** array, shaped like ``inp``."""
     return _flow_kernel_acc(
-        inp, absolute, membrane, bending, shears, div, voxel_size, bound,
-        ndim, sub=True, inplace=False,
+        inp,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size,
+        bound,
+        ndim,
+        sub=True,
+        inplace=False,
     )
 
 
@@ -1730,8 +1776,17 @@ def flow_addkernel_(
 ) -> Any:
     """In place: ``inp += K``. Mutates and returns ``inp``."""
     return _flow_kernel_acc(
-        inp, absolute, membrane, bending, shears, div, voxel_size, bound,
-        ndim, sub=False, inplace=True,
+        inp,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size,
+        bound,
+        ndim,
+        sub=False,
+        inplace=True,
     )
 
 
@@ -1749,6 +1804,15 @@ def flow_subkernel_(
 ) -> Any:
     """In place: ``inp -= K``. Mutates and returns ``inp``."""
     return _flow_kernel_acc(
-        inp, absolute, membrane, bending, shears, div, voxel_size, bound,
-        ndim, sub=True, inplace=True,
+        inp,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size,
+        bound,
+        ndim,
+        sub=True,
+        inplace=True,
     )

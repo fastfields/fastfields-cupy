@@ -27,10 +27,18 @@ import fastfields.cupy as ff
 NDIM = 2
 SPATIAL = (5, 6)
 VS = [1.0, 1.2]
-FIELD_PEN = {"absolute": [0.1, 0.2], "membrane": [0.5, 0.3],
-             "bending": [0.05, 0.02]}
-FLOW_PEN = {"absolute": 0.1, "membrane": 0.5, "bending": 0.0,
-            "shears": 0.2, "div": 0.1}
+FIELD_PEN = {
+    "absolute": [0.1, 0.2],
+    "membrane": [0.5, 0.3],
+    "bending": [0.05, 0.02],
+}
+FLOW_PEN = {
+    "absolute": 0.1,
+    "membrane": 0.5,
+    "bending": 0.0,
+    "shears": 0.2,
+    "div": 0.1,
+}
 KW = {"voxel_size": VS, "bound": "dct2", "ndim": NDIM}
 
 
@@ -109,8 +117,10 @@ def test_leading_batch_dims_still_broadcast(op):
     hes, vec = _operands(cupy, 2)
     single = getattr(ff, f"field_{op}")(hes, vec, **FIELD_PEN, **KW)
     batched = getattr(ff, f"field_{op}")(
-        hes[None], cupy.broadcast_to(vec, (3,) + vec.shape).copy(),
-        **FIELD_PEN, **KW,
+        hes[None],
+        cupy.broadcast_to(vec, (3,) + vec.shape).copy(),
+        **FIELD_PEN,
+        **KW,
     )
     assert batched.shape == (3,) + single.shape
     for i in range(3):
@@ -122,8 +132,9 @@ def test_leading_batch_dims_still_broadcast(op):
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("family,pen", [("field", FIELD_PEN),
-                                        ("flow", FLOW_PEN)])
+@pytest.mark.parametrize(
+    "family,pen", [("field", FIELD_PEN), ("flow", FLOW_PEN)]
+)
 def test_precond_inplace_agrees_and_mutates(family, pen):
     cupy = _require_gpu()
     hes, vec = _operands(cupy, 2 if family == "field" else NDIM)
@@ -155,8 +166,9 @@ def _kernel(family):
     return ff.flow_kernel(NDIM, **FLOW_PEN, voxel_size=VS, bound="dct2")
 
 
-@pytest.mark.parametrize("family,pen", [("field", FIELD_PEN),
-                                        ("flow", FLOW_PEN)])
+@pytest.mark.parametrize(
+    "family,pen", [("field", FIELD_PEN), ("flow", FLOW_PEN)]
+)
 def test_addkernel_on_zeros_is_the_kernel(family, pen):
     cupy = _require_gpu()
     k = _kernel(family)
@@ -164,8 +176,9 @@ def test_addkernel_on_zeros_is_the_kernel(family, pen):
     _close(cupy, got, k)
 
 
-@pytest.mark.parametrize("family,pen", [("field", FIELD_PEN),
-                                        ("flow", FLOW_PEN)])
+@pytest.mark.parametrize(
+    "family,pen", [("field", FIELD_PEN), ("flow", FLOW_PEN)]
+)
 def test_subkernel_on_zeros_is_minus_the_kernel(family, pen):
     cupy = _require_gpu()
     k = _kernel(family)
@@ -173,8 +186,9 @@ def test_subkernel_on_zeros_is_minus_the_kernel(family, pen):
     _close(cupy, got, -k)
 
 
-@pytest.mark.parametrize("family,pen", [("field", FIELD_PEN),
-                                        ("flow", FLOW_PEN)])
+@pytest.mark.parametrize(
+    "family,pen", [("field", FIELD_PEN), ("flow", FLOW_PEN)]
+)
 @pytest.mark.parametrize("sign", ["add", "sub"])
 def test_inplace_kernel_mutates_and_matches_functional(family, pen, sign):
     cupy = _require_gpu()
@@ -186,8 +200,9 @@ def test_inplace_kernel_mutates_and_matches_functional(family, pen, sign):
     _close(cupy, buf, expected)
 
 
-@pytest.mark.parametrize("family,pen", [("field", FIELD_PEN),
-                                        ("flow", FLOW_PEN)])
+@pytest.mark.parametrize(
+    "family,pen", [("field", FIELD_PEN), ("flow", FLOW_PEN)]
+)
 def test_functional_kernel_accumulate_leaves_input_alone(family, pen):
     cupy = _require_gpu()
     start = _kernel(family) * 0.25
