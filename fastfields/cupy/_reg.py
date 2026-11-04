@@ -15,8 +15,13 @@ from typing import Any, Optional, Sequence
 import fastfields.dlpack as _ff
 from fastfields.helpers import as_bound
 
-from ._sym import sym_matvec, sym_solve
-from ._util import as_gpu_array, cupy, current_stream_ptr
+from ._util import (
+    as_gpu_array,
+    broadcast_batch,
+    cupy,
+    current_stream_ptr,
+    require_gpu_writethrough,
+)
 
 __all__ = [
     "field_matvec",
@@ -30,11 +35,16 @@ __all__ = [
     "field_subdiag",
     "field_subdiag_",
     "field_kernel",
+    "field_addkernel",
+    "field_addkernel_",
+    "field_subkernel",
+    "field_subkernel_",
     "field_relax",
     "field_matvec_rls",
     "field_diag_rls",
     "field_relax_rls",
     "field_precond",
+    "field_precond_",
     "field_forward",
     "flow_matvec",
     "flow_addmatvec",
@@ -47,11 +57,16 @@ __all__ = [
     "flow_subdiag",
     "flow_subdiag_",
     "flow_kernel",
+    "flow_addkernel",
+    "flow_addkernel_",
+    "flow_subkernel",
+    "flow_subkernel_",
     "flow_relax",
     "flow_matvec_rls",
     "flow_diag_rls",
     "flow_relax_rls",
     "flow_precond",
+    "flow_precond_",
     "flow_forward",
 ]
 
@@ -143,6 +158,26 @@ def _field_diag_acc(
     return acc
 
 
+def _field_kernel_acc(
+    inp, absolute, membrane, bending, voxel_size, bound, ndim, sub, inplace
+):
+    inp = as_gpu_array(inp, name="inp")
+    acc = inp if inplace else inp.copy()
+    channels = acc.shape[-1]
+    fn = _ff.field_subkernel_ if sub else _ff.field_addkernel_
+    fn(
+        acc,
+        _voxel(voxel_size, ndim),
+        _per_channel(absolute, channels, "absolute"),
+        _per_channel(membrane, channels, "membrane"),
+        _per_channel(bending, channels, "bending"),
+        as_bound(bound),
+        ndim,
+        current_stream_ptr(),
+    )
+    return acc
+
+
 def _flow_matvec_acc(
     inp,
     flow,
@@ -206,6 +241,75 @@ def _flow_diag_acc(
         current_stream_ptr(),
     )
     return acc
+
+
+def _flow_kernel_acc(
+    inp,
+    absolute,
+    membrane,
+    bending,
+    shears,
+    div,
+    voxel_size,
+    bound,
+    ndim,
+    sub,
+    inplace,
+):
+    inp = as_gpu_array(inp, name="inp")
+    acc = inp if inplace else inp.copy()
+    fn = _ff.flow_subkernel_ if sub else _ff.flow_addkernel_
+    fn(
+        acc,
+        _voxel(voxel_size, ndim),
+        float(absolute),
+        float(membrane),
+        float(bending),
+        float(shears),
+        float(div),
+        as_bound(bound),
+        ndim,
+        current_stream_ptr(),
+    )
+    return acc
+
+
+# ---------------------------------------------------------------------------
+# The regularised system (H + L)
+# ---------------------------------------------------------------------------
+#
+# `*_forward` applies (H + L), `*_precond[_]` the Jacobi approximation of its
+# inverse, `*_relax` solves it -- H being the per-voxel data-term Hessian
+# (`mat`, compact-symmetric) and L the regulariser. Each is ONE binding,
+# `fastfields.dlpack.{field,flow}_{forward,precond,precond_}`.
+#
+# They used to be assembled here out of `*_matvec` + `sym_matvec` (forward)
+# and `*_diag` + `sym_solve` (preconditioner), because the hub entry points
+# existed in C++ but had never been bound. That gives the same values, but
+# allocates a full-size temporary for the regulariser result and traverses the
+# field twice -- and on CUDA every extra temporary is also another block the
+# caller has to keep alive until the stream is synchronised. These now call the
+# hub entry points.
+#
+# Leading batch dims of `mat` and the vector are still broadcast, as they were
+# through `sym_solve`/`sym_matvec`. The `ndim` spatial axes and the trailing
+# channel axis are not: the regulariser's stencil is spatial, so a mismatch
+# there is an error rather than something to broadcast (same rule as
+# `field_relax`).
+
+
+def _reg_broadcast(mat, vec, ndim, mat_name="mat", vec_name="vec"):
+    """Broadcast the batch dims of a (Hessian, vector) pair for a reg op."""
+    mat = as_gpu_array(mat, name=mat_name)
+    vec = as_gpu_array(vec, name=vec_name)
+    core = int(ndim) + 1
+    if mat.ndim < core or vec.ndim < core:
+        raise ValueError(
+            f"{mat_name} and {vec_name} must have at least ndim+1={core} "
+            f"axes (*spatial, C); got {mat.shape} and {vec.shape}"
+        )
+    batch, (mat_b, vec_b) = broadcast_batch([(mat, core), (vec, core)])
+    return batch, mat_b, vec_b
 
 
 def field_matvec(
@@ -788,22 +892,29 @@ def flow_precond(
 
     ``M`` is the per-voxel compact-symmetric matrix ``mat``; ``diag(R)`` is the
     diagonal of the flow regulariser (same penalties as :func:`flow_matvec`).
-    A composition of :func:`flow_diag` and ``sym_solve`` — no new kernel.
+    One kernel (``fastfields.dlpack.flow_precond``). Leading batch dims of
+    ``mat``/``vec`` broadcast; the ``ndim`` spatial axes and the component axis
+    must match. See :func:`flow_precond_` for the in-place form.
     """
-    vec = as_gpu_array(vec, name="vec")
-    diag = flow_diag(
-        vec.shape,
-        absolute,
-        membrane,
-        bending,
-        shears,
-        div,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
-        dtype=vec.dtype,
+    cp = cupy()
+    batch, mat, vec = _reg_broadcast(mat, vec, ndim)
+    core = vec.shape[vec.ndim - int(ndim) - 1 :]
+    out = cp.empty(batch + core, dtype=vec.dtype)
+    _ff.flow_precond(
+        out,
+        mat,
+        vec,
+        _voxel(voxel_size, ndim),
+        float(absolute),
+        float(membrane),
+        float(bending),
+        float(shears),
+        float(div),
+        as_bound(bound),
+        ndim,
+        current_stream_ptr(),
     )
-    return sym_solve(mat, vec, diag)
+    return out
 
 
 def flow_forward(
@@ -822,21 +933,27 @@ def flow_forward(
     """Apply the forward matrix-vector product ``(M + R) @ vec``.
 
     ``M`` is the per-voxel compact-symmetric matrix ``mat`` and ``R`` the flow
-    regulariser operator. A composition of ``sym_matvec`` and
-    :func:`flow_matvec` — no new kernel.
+    regulariser operator. One kernel
+    (``fastfields.dlpack.flow_forward``). Leading batch dims of ``mat``/``vec``
+    broadcast; the ``ndim`` spatial axes and the component axis must match.
     """
-    vec = as_gpu_array(vec, name="vec")
-    out = sym_matvec(mat, vec)
-    out = out + flow_matvec(
+    cp = cupy()
+    batch, mat, vec = _reg_broadcast(mat, vec, ndim)
+    core = vec.shape[vec.ndim - int(ndim) - 1 :]
+    out = cp.empty(batch + core, dtype=vec.dtype)
+    _ff.flow_forward(
+        out,
+        mat,
         vec,
-        absolute,
-        membrane,
-        bending,
-        shears,
-        div,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
+        _voxel(voxel_size, ndim),
+        float(absolute),
+        float(membrane),
+        float(bending),
+        float(shears),
+        float(div),
+        as_bound(bound),
+        ndim,
+        current_stream_ptr(),
     )
     return out
 
@@ -1114,19 +1231,30 @@ def field_precond(
     bound: int | str = "dct2",
     ndim: int = 1,
 ) -> Any:
-    """Apply the preconditioner ``(M + diag(R)) \\ vec``."""
-    vec = as_gpu_array(vec, name="vec")
-    diag = field_diag(
-        vec.shape,
-        absolute,
-        membrane,
-        bending,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
-        dtype=vec.dtype,
+    """Apply the preconditioner ``(M + diag(R)) \\ vec``.
+
+    One kernel (``fastfields.dlpack.field_precond``). Leading batch dims of
+    ``mat``/``vec`` broadcast; the ``ndim`` spatial axes and the channel axis
+    must match. See :func:`field_precond_` for the in-place form.
+    """
+    cp = cupy()
+    batch, mat, vec = _reg_broadcast(mat, vec, ndim)
+    channels = vec.shape[-1]
+    core = vec.shape[vec.ndim - int(ndim) - 1 :]
+    out = cp.empty(batch + core, dtype=vec.dtype)
+    _ff.field_precond(
+        out,
+        mat,
+        vec,
+        _voxel(voxel_size, ndim),
+        _per_channel(absolute, channels, "absolute"),
+        _per_channel(membrane, channels, "membrane"),
+        _per_channel(bending, channels, "bending"),
+        as_bound(bound),
+        ndim,
+        current_stream_ptr(),
     )
-    return sym_solve(mat, vec, diag)
+    return out
 
 
 def field_forward(
@@ -1140,17 +1268,28 @@ def field_forward(
     bound: int | str = "dct2",
     ndim: int = 1,
 ) -> Any:
-    """Apply the forward matrix-vector product ``(M + R) @ vec``."""
-    vec = as_gpu_array(vec, name="vec")
-    out = sym_matvec(mat, vec)
-    out = out + field_matvec(
+    """Apply the forward matrix-vector product ``(M + R) @ vec``.
+
+    One kernel (``fastfields.dlpack.field_forward``). Leading batch dims of
+    ``mat``/``vec`` broadcast; the ``ndim`` spatial axes and the channel axis
+    must match.
+    """
+    cp = cupy()
+    batch, mat, vec = _reg_broadcast(mat, vec, ndim)
+    channels = vec.shape[-1]
+    core = vec.shape[vec.ndim - int(ndim) - 1 :]
+    out = cp.empty(batch + core, dtype=vec.dtype)
+    _ff.field_forward(
+        out,
+        mat,
         vec,
-        absolute,
-        membrane,
-        bending,
-        voxel_size=voxel_size,
-        bound=bound,
-        ndim=ndim,
+        _voxel(voxel_size, ndim),
+        _per_channel(absolute, channels, "absolute"),
+        _per_channel(membrane, channels, "membrane"),
+        _per_channel(bending, channels, "bending"),
+        as_bound(bound),
+        ndim,
+        current_stream_ptr(),
     )
     return out
 
@@ -1371,6 +1510,306 @@ def field_subdiag_(
         absolute,
         membrane,
         bending,
+        voxel_size,
+        bound,
+        ndim,
+        sub=True,
+        inplace=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# In-place preconditioners
+# ---------------------------------------------------------------------------
+
+
+def field_precond_(
+    sol: Any,
+    mat: Any,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """In-place :func:`field_precond`: ``sol = (M + diag(R)) \\ sol``.
+
+    ``sol`` holds the gradient on entry and the preconditioned solution on
+    exit; it is mutated and returned. Nothing is broadcast -- an in-place op
+    writes through the caller's buffer, so its shape is the answer's shape.
+    """
+    sol = require_gpu_writethrough(sol, name="sol")
+    mat = as_gpu_array(mat, name="mat")
+    channels = sol.shape[-1]
+    _ff.field_precond_(
+        sol,
+        mat,
+        _voxel(voxel_size, ndim),
+        _per_channel(absolute, channels, "absolute"),
+        _per_channel(membrane, channels, "membrane"),
+        _per_channel(bending, channels, "bending"),
+        as_bound(bound),
+        ndim,
+        current_stream_ptr(),
+    )
+    return sol
+
+
+def flow_precond_(
+    sol: Any,
+    mat: Any,
+    absolute: float = 0.0,
+    membrane: float = 0.0,
+    bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """In-place :func:`flow_precond`: ``sol = (M + diag(R)) \\ sol``.
+
+    ``sol`` holds the gradient on entry and the preconditioned solution on
+    exit; it is mutated and returned.
+    """
+    sol = require_gpu_writethrough(sol, name="sol")
+    mat = as_gpu_array(mat, name="mat")
+    _ff.flow_precond_(
+        sol,
+        mat,
+        _voxel(voxel_size, ndim),
+        float(absolute),
+        float(membrane),
+        float(bending),
+        float(shears),
+        float(div),
+        as_bound(bound),
+        ndim,
+        current_stream_ptr(),
+    )
+    return sol
+
+
+# ---------------------------------------------------------------------------
+# Stencil (kernel) accumulate variants
+# ---------------------------------------------------------------------------
+#
+# The same `inp ± op(...)` pattern as the *_adddiag / *_subdiag family, for
+# the materialised Toeplitz stencil rather than the diagonal. `inp` is shaped
+# like the output of :func:`field_kernel` / :func:`flow_kernel`.
+
+
+def field_addkernel(
+    inp: Any,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """Return ``inp + K`` as a **new** array, shaped like ``inp``.
+
+    ``K`` is the field regulariser's stencil (see :func:`field_kernel`, whose
+    output shape ``inp`` must match).
+    """
+    return _field_kernel_acc(
+        inp,
+        absolute,
+        membrane,
+        bending,
+        voxel_size,
+        bound,
+        ndim,
+        sub=False,
+        inplace=False,
+    )
+
+
+def field_subkernel(
+    inp: Any,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """Return ``inp - K`` as a **new** array, shaped like ``inp``."""
+    return _field_kernel_acc(
+        inp,
+        absolute,
+        membrane,
+        bending,
+        voxel_size,
+        bound,
+        ndim,
+        sub=True,
+        inplace=False,
+    )
+
+
+def field_addkernel_(
+    inp: Any,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """In place: ``inp += K``. Mutates and returns ``inp``."""
+    return _field_kernel_acc(
+        inp,
+        absolute,
+        membrane,
+        bending,
+        voxel_size,
+        bound,
+        ndim,
+        sub=False,
+        inplace=True,
+    )
+
+
+def field_subkernel_(
+    inp: Any,
+    absolute=None,
+    membrane=None,
+    bending=None,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """In place: ``inp -= K``. Mutates and returns ``inp``."""
+    return _field_kernel_acc(
+        inp,
+        absolute,
+        membrane,
+        bending,
+        voxel_size,
+        bound,
+        ndim,
+        sub=True,
+        inplace=True,
+    )
+
+
+def flow_addkernel(
+    inp: Any,
+    absolute: float = 0.0,
+    membrane: float = 0.0,
+    bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """Return ``inp + K`` as a **new** array, shaped like ``inp``.
+
+    ``K`` is the flow regulariser's stencil (see :func:`flow_kernel`, whose
+    output shape ``inp`` must match).
+    """
+    return _flow_kernel_acc(
+        inp,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size,
+        bound,
+        ndim,
+        sub=False,
+        inplace=False,
+    )
+
+
+def flow_subkernel(
+    inp: Any,
+    absolute: float = 0.0,
+    membrane: float = 0.0,
+    bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """Return ``inp - K`` as a **new** array, shaped like ``inp``."""
+    return _flow_kernel_acc(
+        inp,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size,
+        bound,
+        ndim,
+        sub=True,
+        inplace=False,
+    )
+
+
+def flow_addkernel_(
+    inp: Any,
+    absolute: float = 0.0,
+    membrane: float = 0.0,
+    bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """In place: ``inp += K``. Mutates and returns ``inp``."""
+    return _flow_kernel_acc(
+        inp,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
+        voxel_size,
+        bound,
+        ndim,
+        sub=False,
+        inplace=True,
+    )
+
+
+def flow_subkernel_(
+    inp: Any,
+    absolute: float = 0.0,
+    membrane: float = 0.0,
+    bending: float = 0.0,
+    shears: float = 0.0,
+    div: float = 0.0,
+    *,
+    voxel_size=None,
+    bound: int | str = "dct2",
+    ndim: int = 1,
+) -> Any:
+    """In place: ``inp -= K``. Mutates and returns ``inp``."""
+    return _flow_kernel_acc(
+        inp,
+        absolute,
+        membrane,
+        bending,
+        shears,
+        div,
         voxel_size,
         bound,
         ndim,

@@ -24,6 +24,36 @@ Conventions
 cupy is imported lazily, so ``import fastfields.cupy`` succeeds even where cupy
 or a GPU is unavailable; a clear ``ImportError`` is raised only when a wrapper
 is actually called.
+
+What this wrapper deliberately does not expose
+----------------------------------------------
+Of the 58 public operations of the C++ hub, this package wraps all but five.
+``tools/api_inventory.py`` in ``fastfields-dlpack`` prints the full matrix;
+the omissions are:
+
+``pull_backward``, ``push_backward``, ``count_backward``, ``grad_backward``
+    The adjoints of the pushpull operators, with respect to both the sampled
+    field and the sampling coordinates. They exist so that an autograd engine
+    can differentiate through ``grid``, which only :mod:`fastfields.torch`
+    has; there is no automatic differentiation on cupy, so a wrapper here
+    would be a bare function nothing calls, with five pre-zeroed device
+    buffers for the caller to get right -- and, on CUDA, five more blocks to
+    keep alive until the stream is synchronised. They stay reachable through
+    the raw bindings: ``fastfields.dlpack.pull_backward(...)``.
+
+``field_cg``
+    The conjugate-gradient driver is **CPU-only** in ``fastfields-lib``: the
+    solver's dot products need a device-side reduction the CUDA backend does
+    not implement yet (fastfields-lib#34), and the hub rejects CUDA tensors
+    rather than silently running on the host. A ``fastfields.cupy.field_cg``
+    could therefore only ever raise, so this package does not pretend to have
+    one. :func:`field_relax` and :func:`flow_relax` do run on CUDA and solve
+    the same system by Gauss-Seidel sweeps; when fastfields-lib#34 lands,
+    wrapping ``field_cg`` here is a two-screen change and
+    ``tests/test_api_coverage.py`` will remind whoever is looking.
+
+This is checked rather than asserted: ``tests/test_api_coverage.py`` fails if
+the set of operations this package omits ever differs from the list above.
 """
 
 from __future__ import annotations
@@ -45,6 +75,8 @@ from ._pushpull import count, grad, pull, push
 from ._reg import (
     field_adddiag,
     field_adddiag_,
+    field_addkernel,
+    field_addkernel_,
     field_addmatvec,
     field_addmatvec_,
     field_diag,
@@ -54,14 +86,19 @@ from ._reg import (
     field_matvec,
     field_matvec_rls,
     field_precond,
+    field_precond_,
     field_relax,
     field_relax_rls,
     field_subdiag,
     field_subdiag_,
+    field_subkernel,
+    field_subkernel_,
     field_submatvec,
     field_submatvec_,
     flow_adddiag,
     flow_adddiag_,
+    flow_addkernel,
+    flow_addkernel_,
     flow_addmatvec,
     flow_addmatvec_,
     flow_diag,
@@ -71,10 +108,13 @@ from ._reg import (
     flow_matvec,
     flow_matvec_rls,
     flow_precond,
+    flow_precond_,
     flow_relax,
     flow_relax_rls,
     flow_subdiag,
     flow_subdiag_,
+    flow_subkernel,
+    flow_subkernel_,
     flow_submatvec,
     flow_submatvec_,
 )
@@ -134,11 +174,16 @@ __all__ = [
     "field_subdiag",
     "field_subdiag_",
     "field_kernel",
+    "field_addkernel",
+    "field_addkernel_",
+    "field_subkernel",
+    "field_subkernel_",
     "field_relax",
     "field_matvec_rls",
     "field_diag_rls",
     "field_relax_rls",
     "field_precond",
+    "field_precond_",
     "field_forward",
     "flow_matvec",
     "flow_addmatvec",
@@ -151,11 +196,16 @@ __all__ = [
     "flow_subdiag",
     "flow_subdiag_",
     "flow_kernel",
+    "flow_addkernel",
+    "flow_addkernel_",
+    "flow_subkernel",
+    "flow_subkernel_",
     "flow_relax",
     "flow_matvec_rls",
     "flow_diag_rls",
     "flow_relax_rls",
     "flow_precond",
+    "flow_precond_",
     "flow_forward",
     # enums / helpers
     "Spline",

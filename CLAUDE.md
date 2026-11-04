@@ -41,6 +41,17 @@ Prefer a regular install over editable (native-namespace merge).
 - Requires a working CUDA `libfastfields-cuda` at runtime; the CUDA library is
   compile/link-validated only (no GPU in CI), so exercise on real hardware.
 - Ruff: line-length 79, select B/E/F/I/W.
+- **Coverage is enforced without a GPU.** `tests/test_api_coverage.py`
+  compares this package's `__all__` against `fastfields.dlpack.__all__` and
+  fails on any binding that is neither wrapped nor listed in its `DELIBERATE`
+  dict with a reason; `tests/test_reg_family_routing.py` checks *statically*
+  (by reading the wrapper source) that each `field_*`/`flow_*` wrapper only
+  names its own family's binding. Both run where the numeric suite skips,
+  which is everywhere in CI. The five deliberate omissions are the four
+  pushpull adjoints (autograd-only; cupy has none) and `field_cg` (CPU-only
+  in the hub -- fastfields-lib#34 -- so a cupy wrapper could only raise).
+  Full hub->binding->wrapper matrix: `tools/api_inventory.py` in
+  `fastfields-dlpack`.
 
 ## Pointers
 - Hierarchy: `/home/user/.github/profile/README.md`.
