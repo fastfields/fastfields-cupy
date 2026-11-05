@@ -64,6 +64,13 @@ def dt_l1_(inp_out: Any, voxel_spacing: float = 1.0) -> Any:
 # --------------------------------------------------------------------------- #
 # Point-to-spline distance                                                    #
 # --------------------------------------------------------------------------- #
+#
+# The three wrappers below return ``(dist, time)``, matching
+# ``fastfields.numpy`` and ``fastfields.torch`` (fastfields#38). Note that the
+# raw binding underneath takes its two output buffers the other way round --
+# ``_ff.dt_spline_*(time, dist, ...)``, the order the C++ hub declares -- so
+# the argument order at the call sites is *not* a copy of the return order and
+# must not be "tidied" to match it.
 def dt_spline_table(
     loc: Any,
     coeff: Any,
@@ -74,8 +81,8 @@ def dt_spline_table(
     """Point-to-spline distance via a dictionary of candidate ``times``.
 
     ``loc`` core ``(D,)``, ``coeff`` core ``(N, D)``, ``times`` core ``(K,)``;
-    batch dims are broadcast (zero-copy) and ``time``/``dist`` are allocated
-    with the broadcast batch shape. Returns ``(time, dist)``.
+    batch dims are broadcast (zero-copy) and ``dist``/``time`` are allocated
+    with the broadcast batch shape. Returns ``(dist, time)``.
     """
     cp = cupy()
     loc = as_gpu_array(loc, name="loc")
@@ -96,7 +103,7 @@ def dt_spline_table(
         bound,
         current_stream_ptr(),
     )
-    return time, dist
+    return dist, time
 
 
 def dt_spline_brent(
@@ -108,7 +115,7 @@ def dt_spline_brent(
     spline: int = 3,
     bound: int = 3,
 ) -> tuple[Any, Any]:
-    """Point-to-spline distance via Brent's method. Returns ``(time, dist)``.
+    """Point-to-spline distance via Brent's method. Returns ``(dist, time)``.
 
     ``loc`` core ``(D,)``, ``coeff`` core ``(N, D)``; batch dims broadcast.
     """
@@ -130,7 +137,7 @@ def dt_spline_brent(
         bound,
         current_stream_ptr(),
     )
-    return time, dist
+    return dist, time
 
 
 def dt_spline_gaussnewton(
@@ -141,7 +148,7 @@ def dt_spline_gaussnewton(
     spline: int = 3,
     bound: int = 3,
 ) -> tuple[Any, Any]:
-    """Point-to-spline distance via Gauss-Newton. Returns ``(time, dist)``.
+    """Point-to-spline distance via Gauss-Newton. Returns ``(dist, time)``.
 
     ``loc`` core ``(D,)``, ``coeff`` core ``(N, D)``; batch dims broadcast.
     """
@@ -162,7 +169,7 @@ def dt_spline_gaussnewton(
         bound,
         current_stream_ptr(),
     )
-    return time, dist
+    return dist, time
 
 
 # --------------------------------------------------------------------------- #
